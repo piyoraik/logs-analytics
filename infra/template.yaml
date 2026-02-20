@@ -148,6 +148,12 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /report/analyze
             Method: POST
+        AnalyzeReportGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /report/analyze
+            Method: GET
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AbilityMasterTable

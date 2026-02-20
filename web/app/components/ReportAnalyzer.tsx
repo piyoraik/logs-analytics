@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import TimelineGrid from './TimelineGrid';
 import { buildViewModel } from '../../lib/transform';
 import { Fight, ViewModel } from '../../lib/types';
@@ -126,11 +126,14 @@ async function fetchEncounterGroups(): Promise<EncounterGroup[]> {
 }
 
 async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> {
-  const res = await fetch(apiUrl('/report/analyze'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(body)) {
+    if (v === undefined || v === null) {
+      continue;
+    }
+    q.set(k, String(v));
+  }
+  const res = await fetch(apiUrl(`/report/analyze?${q.toString()}`));
   if (!res.ok) {
     const text = await res.text();
     try {
@@ -143,7 +146,14 @@ async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> 
   return (await res.json()) as AnalyzeResponse;
 }
 
+function toOptionalNumber(value: string): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export default function ReportAnalyzer() {
+  const initializedRef = useRef(false);
+
   const [mode, setMode] = useState<SourceMode>('report');
 
   const [reportCode, setReportCode] = useState('');
@@ -311,7 +321,7 @@ export default function ReportAnalyzer() {
               strategy,
               onlyKill,
               difficulty: difficulty ? Number(difficulty) : undefined,
-              fightId: selectedFight ? selectedFight.id : undefined,
+              fightId: selectedFight?.id ?? toOptionalNumber(selectedFightId),
               translate: true,
               locale: 'ja',
               xivapiFallback: true,
@@ -353,6 +363,117 @@ export default function ReportAnalyzer() {
       setLoadingAnalyze(false);
     }
   };
+
+  useEffect(() => {
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+
+    const params = new URLSearchParams(window.location.search);
+    const qpMode = params.get('mode');
+    if (qpMode === 'report' || qpMode === 'rankings') {
+      setMode(qpMode);
+    }
+
+    const qpReport = params.get('report');
+    if (qpReport) {
+      setReportCode(qpReport);
+    }
+
+    const qpStrategy = params.get('strategy');
+    if (qpStrategy === 'best' || qpStrategy === 'lastKill' || qpStrategy === 'firstKill' || qpStrategy === 'longest') {
+      setStrategy(qpStrategy);
+    }
+
+    const qpOnlyKill = params.get('onlyKill');
+    if (qpOnlyKill != null) {
+      setOnlyKill(qpOnlyKill === 'true');
+    }
+
+    const qpDifficulty = params.get('difficulty');
+    if (qpDifficulty) {
+      setDifficulty(qpDifficulty);
+    }
+
+    const qpFightId = params.get('fightId');
+    if (qpFightId) {
+      setSelectedFightId(qpFightId);
+    }
+
+    const qpEncounterId = params.get('encounterId');
+    if (qpEncounterId) {
+      setEncounterId(qpEncounterId);
+      setSelectedEncounterIdInGroup(qpEncounterId);
+    }
+
+    const qpMetric = params.get('metric');
+    if (qpMetric === 'dps' || qpMetric === 'rdps' || qpMetric === 'hps' || qpMetric === 'bossdps') {
+      setMetric(qpMetric);
+    }
+
+    const qpPageSize = params.get('pageSize');
+    if (qpPageSize) {
+      setPageSize(qpPageSize);
+    }
+
+    const qpRankingKey = params.get('rankingKey');
+    if (qpRankingKey) {
+      setSelectedRankingKey(qpRankingKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!initializedRef.current) {
+      return;
+    }
+    const q = new URLSearchParams();
+    q.set('mode', mode);
+    q.set('onlyKill', String(onlyKill));
+    if (difficulty) {
+      q.set('difficulty', difficulty);
+    }
+
+    if (mode === 'report') {
+      if (reportCode.trim()) {
+        q.set('report', reportCode.trim());
+      }
+      q.set('strategy', strategy);
+      if (selectedFightId) {
+        q.set('fightId', selectedFightId);
+      }
+    } else {
+      if (encounterId) {
+        q.set('encounterId', encounterId);
+      }
+      q.set('metric', metric);
+      if (pageSize) {
+        q.set('pageSize', pageSize);
+      }
+      if (selectedRankingKey) {
+        q.set('rankingKey', selectedRankingKey);
+      }
+    }
+
+    const query = q.toString();
+    const base = window.location.pathname;
+    const next = query ? `${base}?${query}` : base;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (next !== current) {
+      window.history.replaceState(null, '', next);
+    }
+  }, [
+    mode,
+    reportCode,
+    strategy,
+    onlyKill,
+    difficulty,
+    selectedFightId,
+    encounterId,
+    metric,
+    pageSize,
+    selectedRankingKey
+  ]);
 
   useEffect(() => {
     if (mode !== 'rankings') {

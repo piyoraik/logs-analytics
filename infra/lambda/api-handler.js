@@ -76,6 +76,13 @@ function toBool(v, def = false) {
   return v.toLowerCase() === 'true';
 }
 
+function toOptionalNumber(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v !== 'string') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function normalizeAbilityName(v) {
   if (!v || typeof v !== 'string') return undefined;
   const s = v.trim();
@@ -453,9 +460,9 @@ async function handleAbilityIcons(query) {
   return ok({ icons });
 }
 
-async function handleAnalyze(rawBody) {
-  const body = typeof rawBody === 'string' && rawBody ? JSON.parse(rawBody) : {};
-  const reportCode = (body.reportCode ?? '').trim();
+async function handleAnalyze(input, fromQuery = false) {
+  const body = fromQuery ? input ?? {} : typeof input === 'string' && input ? JSON.parse(input) : {};
+  const reportCode = String(body.reportCode ?? '').trim();
   if (!reportCode) {
     return err(400, 'reportCode is required');
   }
@@ -463,11 +470,11 @@ async function handleAnalyze(rawBody) {
   const payload = {
     reportCode,
     strategy: body.strategy ?? 'best',
-    onlyKill: body.onlyKill !== false,
-    difficulty: typeof body.difficulty === 'number' ? body.difficulty : undefined,
-    fightId: typeof body.fightId === 'number' ? body.fightId : undefined,
+    onlyKill: fromQuery ? toBool(body.onlyKill, true) : body.onlyKill !== false,
+    difficulty: toOptionalNumber(body.difficulty),
+    fightId: toOptionalNumber(body.fightId),
     locale: body.locale ?? 'ja',
-    translate: body.translate !== false
+    translate: fromQuery ? toBool(body.translate, true) : body.translate !== false
   };
 
   const cached = await maybeLoadCached(payload);
@@ -589,8 +596,11 @@ exports.handler = async (event) => {
     if (method === 'GET' && path === '/ability-icons') {
       return await handleAbilityIcons(event.queryStringParameters ?? {});
     }
+    if (method === 'GET' && path === '/report/analyze') {
+      return await handleAnalyze(event.queryStringParameters ?? {}, true);
+    }
     if (method === 'POST' && path === '/report/analyze') {
-      return await handleAnalyze(event.body);
+      return await handleAnalyze(event.body, false);
     }
     return err(404, `Not found: ${method} ${path}`);
   } catch (e) {
