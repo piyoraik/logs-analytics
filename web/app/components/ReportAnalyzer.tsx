@@ -6,7 +6,7 @@ import { buildViewModel } from '../../lib/transform';
 import { Fight, ViewModel } from '../../lib/types';
 
 type PickStrategy = 'best' | 'lastKill' | 'firstKill' | 'longest';
-type SourceMode = 'report' | 'rankings';
+type SourceMode = 'report' | 'rankings' | 'character';
 type RankingMetric = 'dps' | 'rdps' | 'hps' | 'bossdps';
 
 interface RankingEntry {
@@ -45,9 +45,35 @@ interface RankingsFetchResponse {
   note?: string;
 }
 
+interface CharacterContent {
+  zoneId: number;
+  zoneName: string;
+  encounterId: number;
+  encounterName: string;
+  bestPercent: number;
+  totalKills: number;
+}
+
+interface CharacterContentsResponse {
+  character: { name: string; serverSlug: string; serverRegion: string } | null;
+  contents: CharacterContent[];
+  reports: Array<{ code: string; title?: string; startTime?: number }>;
+}
+
+interface CharacterCandidate {
+  name: string;
+  serverName: string;
+  serverSlug: string;
+  region: string;
+}
+
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/+$/, '');
+const USE_NEXT_API = process.env.NEXT_PUBLIC_USE_NEXT_API === 'true';
 
 function apiUrl(path: string): string {
+  if (path.startsWith('/character/') && (USE_NEXT_API || !API_BASE_URL)) {
+    return `/api${path}`;
+  }
   if (!API_BASE_URL) {
     throw new Error('NEXT_PUBLIC_API_BASE_URL is not set.');
   }
@@ -109,6 +135,65 @@ async function fetchEncounterGroups(): Promise<EncounterGroup[]> {
   return json.groups;
 }
 
+async function fetchCharacterContents(params: {
+  name: string;
+  server: string;
+  region: string;
+}): Promise<CharacterContentsResponse> {
+  const q = new URLSearchParams({
+    name: params.name,
+    server: params.server,
+    region: params.region
+  });
+  const res = await fetch(apiUrl(`/character/contents?${q.toString()}`));
+  if (!res.ok) {
+    throw new Error((await res.json()).error ?? 'Failed to load character contents');
+  }
+  return (await res.json()) as CharacterContentsResponse;
+}
+
+async function fetchCharacterCandidates(params: {
+  name: string;
+  region: string;
+  server?: string;
+  limit?: number;
+}): Promise<CharacterCandidate[]> {
+  const q = new URLSearchParams({
+    name: params.name,
+    region: params.region,
+    limit: String(params.limit ?? 20)
+  });
+  if (params.server && params.server.trim()) {
+    q.set('server', params.server.trim());
+  }
+  const res = await fetch(apiUrl(`/character/search?${q.toString()}`));
+  if (!res.ok) {
+    throw new Error((await res.json()).error ?? 'Failed to search character');
+  }
+  const json = (await res.json()) as { characters: CharacterCandidate[] };
+  return json.characters;
+}
+
+const SERVER_OPTIONS: Record<string, string[]> = {
+  JP: [
+    'aegis', 'alexander', 'anima', 'asura', 'atomos', 'bahamut', 'belias', 'carbuncle', 'chocobo', 'durandal',
+    'fenrir', 'garuda', 'gungnir', 'hades', 'ifrit', 'ixion', 'kujata', 'mandragora', 'masamune', 'pandaemonium',
+    'ramuh', 'ridill', 'shinryu', 'tiamat', 'titan', 'tonberry', 'typhon', 'ultima', 'unicorn', 'valefor',
+    'yojimbo', 'zeromus'
+  ],
+  US: [
+    'adamantoise', 'cactuar', 'faerie', 'gilgamesh', 'jenova', 'midgardsormr', 'sargatanas', 'siren', 'behemoth',
+    'excalibur', 'exodus', 'famfrit', 'hyperion', 'lamia', 'leviathan', 'ultros', 'brynhildr', 'coeurl', 'diabolos',
+    'goblin', 'malboro', 'mateus', 'zalera'
+  ],
+  EU: [
+    'alpha', 'lich', 'odin', 'phoenix', 'raiden', 'shiva', 'twintania', 'zodiark', 'cerberus', 'louisoix',
+    'moogle', 'omega', 'phantom', 'ragnarok', 'sagittarius', 'spriggan'
+  ],
+  OC: ['bismarck', 'ravana', 'sephirot', 'sophia', 'zurvan'],
+  KR: ['moogle', 'chocobo', 'carbuncle', 'cactuar', 'tonberry']
+};
+
 async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(body)) {
@@ -156,6 +241,12 @@ export default function ReportAnalyzer() {
   const [pageSize, setPageSize] = useState('10');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [selectedRankingKey, setSelectedRankingKey] = useState('');
+  const [characterName, setCharacterName] = useState('');
+  const [characterServer, setCharacterServer] = useState('');
+  const [characterRegion, setCharacterRegion] = useState('JP');
+  const [characterCandidates, setCharacterCandidates] = useState<CharacterCandidate[]>([]);
+  const [characterContents, setCharacterContents] = useState<CharacterContent[]>([]);
+  const [characterReports, setCharacterReports] = useState<Array<{ code: string; title?: string; startTime?: number }>>([]);
 
   const [loadingFights, setLoadingFights] = useState(false);
   const [loadingAnalyze, setLoadingAnalyze] = useState(false);
@@ -284,6 +375,56 @@ export default function ReportAnalyzer() {
     }
   };
 
+  const loadCharacterContentsBy = async (params: { name: string; server: string; region: string }) => {
+    setError('');
+    setStatus('Loading character contents...');
+    setLoadingFights(true);
+    try {
+      const data = await fetchCharacterContents({
+        name: params.name.trim(),
+        server: params.server.trim(),
+        region: params.region.trim().toUpperCase()
+      });
+      setCharacterContents(data.contents);
+      setCharacterReports(data.reports ?? []);
+      setStatus(`Character contents loaded: ${data.contents.length}, reports: ${(data.reports ?? []).length}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus('Failed to load character contents');
+    } finally {
+      setLoadingFights(false);
+    }
+  };
+
+  const loadCharacterContents = async () => {
+    await loadCharacterContentsBy({
+      name: characterName,
+      server: characterServer,
+      region: characterRegion
+    });
+  };
+
+  const searchCharacterCandidates = async () => {
+    setError('');
+    setStatus('Searching characters...');
+    setLoadingFights(true);
+    try {
+      const list = await fetchCharacterCandidates({
+        name: characterName.trim(),
+        region: characterRegion,
+        server: characterServer.trim(),
+        limit: 20
+      });
+      setCharacterCandidates(list);
+      setStatus(`Character candidates: ${list.length}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus('Failed to search character');
+    } finally {
+      setLoadingFights(false);
+    }
+  };
+
   const runAnalyze = async () => {
     const payload =
       mode === 'report'
@@ -352,7 +493,7 @@ export default function ReportAnalyzer() {
 
     const params = new URLSearchParams(window.location.search);
     const qpMode = params.get('mode');
-    if (qpMode === 'report' || qpMode === 'rankings') {
+    if (qpMode === 'report' || qpMode === 'rankings' || qpMode === 'character') {
       setMode(qpMode);
     }
 
@@ -399,6 +540,19 @@ export default function ReportAnalyzer() {
     const qpRankingKey = params.get('rankingKey');
     if (qpRankingKey) {
       setSelectedRankingKey(qpRankingKey);
+    }
+
+    const qpCharacterName = params.get('characterName');
+    if (qpCharacterName) {
+      setCharacterName(qpCharacterName);
+    }
+    const qpCharacterServer = params.get('characterServer');
+    if (qpCharacterServer) {
+      setCharacterServer(qpCharacterServer);
+    }
+    const qpCharacterRegion = params.get('characterRegion');
+    if (qpCharacterRegion) {
+      setCharacterRegion(qpCharacterRegion.toUpperCase());
     }
   }, []);
 
@@ -474,15 +628,27 @@ export default function ReportAnalyzer() {
         q.set('fightId', selectedFightId);
       }
     } else {
-      if (selectedEncounterIdInGroup) {
-        q.set('encounterId', selectedEncounterIdInGroup);
-      }
-      q.set('metric', metric);
-      if (pageSize) {
-        q.set('pageSize', pageSize);
-      }
-      if (selectedRankingKey) {
-        q.set('rankingKey', selectedRankingKey);
+      if (mode === 'rankings') {
+        if (selectedEncounterIdInGroup) {
+          q.set('encounterId', selectedEncounterIdInGroup);
+        }
+        q.set('metric', metric);
+        if (pageSize) {
+          q.set('pageSize', pageSize);
+        }
+        if (selectedRankingKey) {
+          q.set('rankingKey', selectedRankingKey);
+        }
+      } else {
+        if (characterName.trim()) {
+          q.set('characterName', characterName.trim());
+        }
+        if (characterServer.trim()) {
+          q.set('characterServer', characterServer.trim());
+        }
+        if (characterRegion) {
+          q.set('characterRegion', characterRegion);
+        }
       }
     }
 
@@ -503,7 +669,10 @@ export default function ReportAnalyzer() {
     selectedEncounterIdInGroup,
     metric,
     pageSize,
-    selectedRankingKey
+    selectedRankingKey,
+    characterName,
+    characterServer,
+    characterRegion
   ]);
 
   useEffect(() => {
@@ -516,6 +685,16 @@ export default function ReportAnalyzer() {
     void loadEncounterGroups();
   }, [mode]);
 
+  useEffect(() => {
+    if (characterServer) {
+      return;
+    }
+    const first = SERVER_OPTIONS[characterRegion]?.[0];
+    if (first) {
+      setCharacterServer(first);
+    }
+  }, [characterRegion, characterServer]);
+
   return (
     <>
       <section className="controls analyzerTop">
@@ -524,6 +703,7 @@ export default function ReportAnalyzer() {
           <select value={mode} onChange={(e) => setMode(e.target.value as SourceMode)}>
             <option value="report">Report</option>
             <option value="rankings">Rankings</option>
+            <option value="character">Character</option>
           </select>
         </label>
 
@@ -546,7 +726,7 @@ export default function ReportAnalyzer() {
               </select>
             </label>
           </>
-        ) : (
+        ) : mode === 'rankings' ? (
           <>
             <label>
               Zone
@@ -603,6 +783,54 @@ export default function ReportAnalyzer() {
               {loadingFights ? 'Fetching rankings...' : 'Fetch Rankings'}
             </button>
           </>
+        ) : (
+          <>
+            <label>
+              Character Name
+              <input value={characterName} onChange={(e) => setCharacterName(e.target.value)} placeholder="キャラ名" />
+            </label>
+            <label>
+              Region
+              <select
+                value={characterRegion}
+                onChange={(e) => {
+                  const region = e.target.value;
+                  setCharacterRegion(region);
+                  const first = SERVER_OPTIONS[region]?.[0] ?? '';
+                  setCharacterServer(first);
+                }}
+              >
+                <option value="JP">JP</option>
+                <option value="US">US</option>
+                <option value="EU">EU</option>
+                <option value="KR">KR</option>
+                <option value="OC">OC</option>
+              </select>
+            </label>
+            <label>
+              Server
+              <select value={characterServer} onChange={(e) => setCharacterServer(e.target.value)}>
+                <option value="">Select server</option>
+                {(SERVER_OPTIONS[characterRegion] ?? []).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              onClick={searchCharacterCandidates}
+              disabled={!characterName.trim() || loadingFights || loadingAnalyze}
+            >
+              {loadingFights ? 'Searching characters...' : 'Search Character'}
+            </button>
+            <button
+              onClick={loadCharacterContents}
+              disabled={!characterName.trim() || !characterServer.trim() || loadingFights || loadingAnalyze}
+            >
+              {loadingFights ? 'Fetching contents...' : 'Fetch Contents'}
+            </button>
+          </>
         )}
 
         <label>
@@ -613,20 +841,18 @@ export default function ReportAnalyzer() {
           <input type="checkbox" checked={onlyKill} onChange={(e) => setOnlyKill(e.target.checked)} />
           onlyKill
         </label>
-        <button
-          onClick={runAnalyze}
-          disabled={
-            mode === 'report'
-              ? !reportCode || loadingAnalyze
-              : !selectedRanking || loadingAnalyze
-          }
-        >
-          {loadingAnalyze ? 'Running analysis...' : 'Run Analysis'}
-        </button>
+        {mode === 'character' ? null : (
+          <button
+            onClick={runAnalyze}
+            disabled={mode === 'report' ? !reportCode || loadingAnalyze : !selectedRanking || loadingAnalyze}
+          >
+            {loadingAnalyze ? 'Running analysis...' : 'Run Analysis'}
+          </button>
+        )}
       </section>
 
       <p className="helpText">
-        Rankings: `Zone` と `Encounter` を選んで `Fetch Rankings`。一覧から1件選択後に `Run Analysis` を実行します。
+        Character: 候補の `Use & Fetch` で即コンテンツ取得。内容が0件でも Recent Report があれば Report モードに移動できます。
       </p>
 
       <p className={`loadingStatus ${loadingFights || loadingAnalyze ? 'active' : ''}`} role="status" aria-live="polite">
@@ -708,6 +934,119 @@ export default function ReportAnalyzer() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {mode === 'character' && characterContents.length > 0 ? (
+        <section className="tableWrap fightsWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Zone</th>
+                <th>Encounter</th>
+                <th>Best %</th>
+                <th>Total Kills</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              {characterContents.map((row) => (
+                <tr key={`${row.zoneId}:${row.encounterId}`}>
+                  <td>{row.zoneName || row.zoneId}</td>
+                  <td>
+                    {row.encounterName} ({row.encounterId})
+                  </td>
+                  <td>{Number.isFinite(row.bestPercent) ? row.bestPercent.toFixed(1) : '-'}</td>
+                  <td>{Number.isFinite(row.totalKills) ? row.totalKills : '-'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedEncounterIdInGroup(String(row.encounterId));
+                        setMode('rankings');
+                      }}
+                    >
+                      Use in Rankings
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {mode === 'character' && characterContents.length === 0 && characterReports.length > 0 ? (
+        <section className="tableWrap fightsWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Recent Report</th>
+                <th>Title</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              {characterReports.map((r) => (
+                <tr key={r.code}>
+                  <td>{r.code}</td>
+                  <td>{r.title ?? '-'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('report');
+                        setReportCode(r.code);
+                      }}
+                    >
+                      Open in Report
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {mode === 'character' && characterCandidates.length > 0 ? (
+        <section className="tableWrap fightsWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Server</th>
+                <th>Region</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              {characterCandidates.map((row) => (
+                <tr key={`${row.name}:${row.serverSlug}:${row.region}`}>
+                  <td>{row.name}</td>
+                  <td>{row.serverSlug}</td>
+                  <td>{row.region}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setCharacterName(row.name);
+                        setCharacterRegion(row.region || characterRegion);
+                        setCharacterServer(row.serverSlug);
+                        await loadCharacterContentsBy({
+                          name: row.name,
+                          region: row.region || characterRegion,
+                          server: row.serverSlug
+                        });
+                      }}
+                    >
+                      Use & Fetch
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </section>

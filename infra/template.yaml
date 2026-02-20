@@ -136,6 +136,18 @@ Resources:
             ApiId: !Ref ApiGateway
             Path: /encounters/groups
             Method: GET
+        CharacterContents:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /character/contents
+            Method: GET
+        CharacterSearch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /character/search
+            Method: GET
         AbilityIcons:
           Type: HttpApi
           Properties:

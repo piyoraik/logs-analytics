@@ -11,6 +11,52 @@ const { buildBossTimeline } = require('../dist/timeline/bossTimeline');
 const { buildPlayerCasts } = require('../dist/players/playerCasts');
 const { buildPlayerSummary } = require('../dist/players/summary');
 
+function buildCharacterContentsQueryString(includeRecentReports) {
+  return `
+query CharacterContents($name: String!, $serverSlug: String!, $serverRegion: String!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      name
+      zoneRankings(size: 100, metric: dps, includePrivateLogs: true)
+      ${
+        includeRecentReports
+          ? `recentReports(limit: 30) {
+        data {
+          code
+          title
+          startTime
+        }
+      }`
+          : ''
+      }
+    }
+  }
+}`;
+}
+
+function buildCharacterContentsQueryEnum(region, includeRecentReports) {
+  return `
+query CharacterContents($name: String!, $serverSlug: String!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: ${region}) {
+      name
+      zoneRankings(size: 100, metric: dps, includePrivateLogs: true)
+      ${
+        includeRecentReports
+          ? `recentReports(limit: 30) {
+        data {
+          code
+          title
+          startTime
+        }
+      }`
+          : ''
+      }
+    }
+  }
+}`;
+}
+
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: {
     removeUndefinedValues: true
@@ -81,6 +127,121 @@ function toOptionalNumber(v) {
   if (typeof v !== 'string') return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeServerSlug(v) {
+  return String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-');
+}
+
+function normalizeRegion(v) {
+  const s = String(v ?? '').trim().toUpperCase();
+  if (s === 'JP' || s === 'EU' || s === 'US' || s === 'KR' || s === 'CN' || s === 'TW' || s === 'OC') {
+    return s;
+  }
+  return '';
+}
+
+function serverSlugToName(slug) {
+  return String(slug ?? '')
+    .split('-')
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(' ');
+}
+
+async function searchCharactersViaXivApi(name, serverSlug, limit) {
+  const base = (process.env.XIVAPI_BASE_URL ?? 'https://xivapi.com').replace(/\/+$/, '');
+  const baseCandidates = [...new Set([base, 'https://xivapi.com', 'https://v1.xivapi.com'])];
+  const safeLimit = Math.max(1, Math.min(limit, 50));
+  const serverName = serverSlugToName(serverSlug);
+  const serverCandidates = [...new Set([serverSlug, serverName, serverName.replace(/\s+/g, ''), ''].filter(Boolean))];
+  const urls = [];
+  for (const b of baseCandidates) {
+    for (const server of serverCandidates) {
+      urls.push(
+        `${b}/character/search?name=${encodeURIComponent(name)}${
+          server ? `&server=${encodeURIComponent(server)}` : ''
+        }&limit=${safeLimit}`
+      );
+    }
+  }
+
+  for (const url of urls) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      continue;
+    }
+    const data = await res.json();
+    const rows = Array.isArray(data?.Results) ? data.Results : Array.isArray(data?.results) ? data.results : [];
+    if (rows.length === 0) {
+      continue;
+    }
+    return rows
+      .map((x) => ({
+        name: String(x?.Name ?? x?.name ?? '').trim(),
+        serverName: String(x?.Server ?? x?.world ?? '').trim(),
+        serverSlug: normalizeServerSlug(x?.Server ?? x?.world ?? serverSlug),
+        region: ''
+      }))
+      .filter((x) => x.name && x.serverSlug);
+  }
+  return [];
+}
+
+function maybeParseJson(v) {
+  if (v == null) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v === 'string') {
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function extractCharacterContents(zoneRankingsPayload) {
+  const payload = maybeParseJson(zoneRankingsPayload);
+  if (!payload) return [];
+  const zones =
+    (Array.isArray(payload.zones) && payload.zones) ||
+    (Array.isArray(payload.data?.zones) && payload.data.zones) ||
+    [];
+  const out = [];
+  for (const zone of zones) {
+    const zoneId = Number(zone?.zoneID ?? zone?.id ?? 0);
+    const zoneName = String(zone?.zoneName ?? zone?.name ?? '');
+    const encounters = Array.isArray(zone?.encounters) ? zone.encounters : [];
+    for (const enc of encounters) {
+      const encounterId = Number(enc?.id ?? enc?.encounterID ?? 0);
+      if (!Number.isFinite(encounterId) || encounterId <= 0) continue;
+      out.push({
+        zoneId: Number.isFinite(zoneId) ? zoneId : 0,
+        zoneName,
+        encounterId,
+        encounterName: String(enc?.name ?? ''),
+        bestPercent: Number(enc?.rankPercent ?? enc?.bestPercent ?? 0),
+        totalKills: Number(enc?.totalKills ?? enc?.killCount ?? 0)
+      });
+    }
+  }
+
+  const map = new Map();
+  for (const item of out) {
+    const key = `${item.zoneId}:${item.encounterId}`;
+    const prev = map.get(key);
+    if (!prev || item.bestPercent > prev.bestPercent) {
+      map.set(key, item);
+    }
+  }
+  return [...map.values()].sort((a, b) => {
+    if (a.zoneName !== b.zoneName) return a.zoneName.localeCompare(b.zoneName);
+    return a.encounterName.localeCompare(b.encounterName);
+  });
 }
 
 function normalizeAbilityName(v) {
@@ -359,6 +520,86 @@ async function handleEncounterGroups() {
   return ok({ groups });
 }
 
+async function handleCharacterContents(query) {
+  const name = String(query.name ?? '').trim();
+  const serverSlug = normalizeServerSlug(query.server ?? query.serverSlug);
+  const serverRegion = normalizeRegion(query.region ?? query.serverRegion);
+  if (!name || !serverSlug || !serverRegion) {
+    return err(400, 'name, server, region are required');
+  }
+
+  const client = makeClient('ja');
+  let data;
+  try {
+    data = await client.request(buildCharacterContentsQueryString(true), {
+      name,
+      serverSlug,
+      serverRegion
+    });
+  } catch {
+    try {
+      data = await client.request(buildCharacterContentsQueryEnum(serverRegion, true), { name, serverSlug });
+    } catch {
+      data = await client.request(buildCharacterContentsQueryString(false), {
+        name,
+        serverSlug,
+        serverRegion
+      });
+    }
+  }
+
+  const character = data?.characterData?.character;
+  if (!character) {
+    return ok({ character: null, contents: [], reports: [] });
+  }
+
+  const contents = extractCharacterContents(character.zoneRankings);
+  const reports = Array.isArray(character.recentReports?.data)
+    ? character.recentReports.data
+        .map((x) => ({
+          code: x?.code,
+          title: x?.title,
+          startTime: x?.startTime
+        }))
+        .filter((x) => typeof x.code === 'string' && x.code.trim())
+    : [];
+
+  return ok({
+    character: {
+      name: character.name ?? name,
+      serverSlug,
+      serverRegion
+    },
+    contents,
+    reports
+  });
+}
+
+async function handleCharacterSearch(query) {
+  const name = String(query.name ?? '').trim();
+  const serverRegion = normalizeRegion(query.region ?? query.serverRegion);
+  const serverSlugFilter = normalizeServerSlug(query.server ?? query.serverSlug);
+  const limit = Math.max(1, Math.min(50, Number(query.limit ?? '20')));
+  if (!name || !serverRegion) {
+    return err(400, 'name and region are required');
+  }
+
+  const rows = await searchCharactersViaXivApi(name, serverSlugFilter, limit * 3);
+  const keyword = name.toLowerCase();
+  const characters = rows
+    .map((x) => ({
+      name: x.name,
+      serverName: x.serverName || serverSlugToName(x.serverSlug),
+      serverSlug: x.serverSlug,
+      region: serverRegion
+    }))
+    .filter((x) => x.name.toLowerCase().includes(keyword))
+    .filter((x) => !serverSlugFilter || x.serverSlug === serverSlugFilter)
+    .slice(0, limit);
+
+  return ok({ characters });
+}
+
 async function fetchXivApiAction(id, lang) {
   const baseUrl = (process.env.XIVAPI_BASE_URL ?? 'https://v2.xivapi.com').replace(/\/+$/, '');
   const candidates = [baseUrl];
@@ -592,6 +833,12 @@ exports.handler = async (event) => {
     }
     if (method === 'GET' && path === '/encounters/groups') {
       return await handleEncounterGroups();
+    }
+    if (method === 'GET' && path === '/character/contents') {
+      return await handleCharacterContents(event.queryStringParameters ?? {});
+    }
+    if (method === 'GET' && path === '/character/search') {
+      return await handleCharacterSearch(event.queryStringParameters ?? {});
     }
     if (method === 'GET' && path === '/ability-icons') {
       return await handleAbilityIcons(event.queryStringParameters ?? {});
