@@ -132,7 +132,13 @@ async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> 
     body: JSON.stringify(body)
   });
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Analyze failed');
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text) as { error?: string };
+      throw new Error(json.error ?? `Analyze failed (${res.status})`);
+    } catch {
+      throw new Error(text || `Analyze failed (${res.status})`);
+    }
   }
   return (await res.json()) as AnalyzeResponse;
 }

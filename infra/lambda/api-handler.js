@@ -508,6 +508,40 @@ async function handleAnalyze(rawBody) {
 
   const abilityIds = collectAbilityIds([...castEvents, ...bossEvents]);
   const abilityMap = await loadAbilityMap(abilityIds);
+  const missingAbilityIds = abilityIds.filter((id) => !abilityMap.has(id));
+  if (missingAbilityIds.length > 0) {
+    const table = process.env.ABILITY_MASTER_TABLE;
+    const lang = (body.xivapiLang ?? process.env.XIVAPI_LANG ?? 'ja').toString();
+    const maxResolve = 80;
+    const concurrency = 8;
+    const targets = missingAbilityIds.slice(0, maxResolve);
+    for (let i = 0; i < targets.length; i += concurrency) {
+      const chunk = targets.slice(i, i + concurrency);
+      const results = await Promise.allSettled(
+        chunk.map(async (id) => {
+          const action = await fetchXivApiAction(id, lang);
+          if (action.name) {
+            abilityMap.set(id, action.name);
+          }
+          if (table && (action.name || action.iconUrl)) {
+            await ddb.send(
+              new PutCommand({
+                TableName: table,
+                Item: {
+                  abilityId: id,
+                  nameJa: lang === 'ja' ? action.name : undefined,
+                  nameEn: lang === 'en' ? action.name : undefined,
+                  iconUrl: action.iconUrl,
+                  updatedAt: Date.now()
+                }
+              })
+            );
+          }
+        })
+      );
+      void results;
+    }
+  }
   if (abilityMap.size > 0) {
     bossTimeline = buildBossTimeline(bossEvents, actorMap, selectedFight.startTime, abilityMap);
   }
