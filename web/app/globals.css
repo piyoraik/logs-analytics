@@ -1,0 +1,252 @@
+:root {
+  --bg: #0d1b2a;
+  --panel: #1b263b;
+  --ink: #f1faee;
+  --muted: #b8c1cc;
+  --line: #415a77;
+  --accent: #ffb703;
+  --chip: #264653;
+  --hit: #ffe08a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #274c77 0%, var(--bg) 45%, #08111d 100%);
+  font-family: "IBM Plex Sans", "Noto Sans JP", sans-serif;
+}
+
+.page {
+  padding: 20px;
+}
+
+.hero {
+  background: linear-gradient(120deg, rgba(255, 183, 3, 0.15), rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.hero h1 {
+  margin: 0 0 10px;
+  font-size: 26px;
+  letter-spacing: 0.02em;
+}
+
+.hero p {
+  margin: 6px 0;
+  color: var(--muted);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(7, 15, 26, 0.8);
+}
+
+.analyzerTop button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1f3b5a;
+  color: #f6f7f8;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.fightsWrap button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #1f3b5a;
+  color: #f6f7f8;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.analyzerTop button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.errorMsg {
+  color: #ff8fab;
+  margin: 8px 2px;
+}
+
+.warnMsg {
+  color: #ffd166;
+  margin: 8px 2px;
+  font-size: 12px;
+}
+
+.loadingStatus {
+  margin: 8px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.helpText {
+  margin: 6px 2px;
+  color: #9ec1d9;
+  font-size: 12px;
+}
+
+.loadingStatus.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.fightsWrap {
+  margin-bottom: 12px;
+  max-height: 220px;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.controls input,
+.controls select {
+  min-width: 120px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: #10233a;
+}
+
+.controls .check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.controls .status {
+  margin-left: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.searchBox input {
+  min-width: 220px;
+}
+
+.playersPanel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(65, 90, 119, 0.55);
+  border-radius: 10px;
+  background: rgba(7, 15, 26, 0.6);
+}
+
+.playersPanel .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tableWrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: auto;
+  max-height: calc(100vh - 310px);
+  background: rgba(7, 15, 26, 0.8);
+}
+
+table {
+  border-collapse: collapse;
+  min-width: 1400px;
+  width: 100%;
+}
+
+th,
+td {
+  border: 1px solid rgba(65, 90, 119, 0.55);
+  padding: 8px;
+  vertical-align: top;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #0f1724;
+  color: var(--accent);
+}
+
+.stickyCol {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #132338;
+}
+
+.timeCol {
+  color: var(--accent);
+  font-weight: 700;
+  text-align: right;
+  min-width: 84px;
+}
+
+tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+tbody td {
+  color: #e8eef4;
+  min-width: 220px;
+}
+
+.abilityList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.abilityItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--chip);
+  border: 1px solid #2f5f73;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.abilityItem.hit {
+  border-color: var(--hit);
+  box-shadow: 0 0 0 1px rgba(255, 224, 138, 0.35) inset;
+}
+
+.abilityIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.dash {
+  color: #89a4bd;
+}
