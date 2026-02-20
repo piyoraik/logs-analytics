@@ -21,13 +21,6 @@ interface RankingEntry {
   specName?: string;
 }
 
-interface EncounterCandidate {
-  id: number;
-  name: string;
-  zoneId?: number;
-  zoneName?: string;
-}
-
 interface EncounterGroup {
   zoneId: number;
   zoneName: string;
@@ -107,15 +100,6 @@ async function fetchRankings(params: {
   return (await res.json()) as RankingsFetchResponse;
 }
 
-async function fetchEncounterCandidates(keyword: string): Promise<EncounterCandidate[]> {
-  const res = await fetch(apiUrl(`/encounters/search?q=${encodeURIComponent(keyword)}&max=40`));
-  if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to search encounters');
-  }
-  const json = (await res.json()) as { encounters: EncounterCandidate[] };
-  return json.encounters;
-}
-
 async function fetchEncounterGroups(): Promise<EncounterGroup[]> {
   const res = await fetch(apiUrl('/encounters/groups'));
   if (!res.ok) {
@@ -165,12 +149,9 @@ export default function ReportAnalyzer() {
   const [fights, setFights] = useState<Fight[]>([]);
   const [selectedFightId, setSelectedFightId] = useState('');
 
-  const [encounterId, setEncounterId] = useState('');
   const [encounterGroups, setEncounterGroups] = useState<EncounterGroup[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState('');
   const [selectedEncounterIdInGroup, setSelectedEncounterIdInGroup] = useState('');
-  const [encounterKeyword, setEncounterKeyword] = useState('');
-  const [encounterCandidates, setEncounterCandidates] = useState<EncounterCandidate[]>([]);
   const [metric, setMetric] = useState<RankingMetric>('dps');
   const [pageSize, setPageSize] = useState('10');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
@@ -227,7 +208,7 @@ export default function ReportAnalyzer() {
       setStatus(`Loading rankings... ${sec}s`);
     }, 1000);
     try {
-      const encounterIdNum = Number(encounterId);
+      const encounterIdNum = Number(selectedEncounterIdInGroup);
       const difficultyNum = Number(difficulty);
       const pageSizeNum = Number(pageSize);
       if (!Number.isFinite(encounterIdNum) || encounterIdNum <= 0) {
@@ -251,7 +232,7 @@ export default function ReportAnalyzer() {
       setSelectedRankingKey(list.rankings[0] ? `${list.rankings[0].reportCode}:${list.rankings[0].fightID}` : '');
       if (list.fallbackApplied) {
         if (list.resolvedEncounterId != null) {
-          setEncounterId(String(list.resolvedEncounterId));
+          setSelectedEncounterIdInGroup(String(list.resolvedEncounterId));
         }
         if (list.resolvedMetric) {
           setMetric(list.resolvedMetric as RankingMetric);
@@ -274,22 +255,6 @@ export default function ReportAnalyzer() {
     }
   };
 
-  const searchEncounter = async () => {
-    setError('');
-    setStatus('Searching encounters...');
-    setLoadingFights(true);
-    try {
-      const list = await fetchEncounterCandidates(encounterKeyword.trim());
-      setEncounterCandidates(list);
-      setStatus(`Encounter candidates: ${list.length}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to search encounters');
-    } finally {
-      setLoadingFights(false);
-    }
-  };
-
   const loadEncounterGroups = async () => {
     setError('');
     setStatus('Loading encounter groups...');
@@ -297,8 +262,18 @@ export default function ReportAnalyzer() {
     try {
       const groups = await fetchEncounterGroups();
       setEncounterGroups(groups);
-      if (groups[0]) {
-        setSelectedZoneId(String(groups[0].zoneId));
+      if (groups.length > 0) {
+        const pickedEncounter = selectedEncounterIdInGroup
+          ? groups.find((g) => g.encounters.some((e) => String(e.id) === selectedEncounterIdInGroup))
+          : undefined;
+        const zone = pickedEncounter ?? groups[0];
+        setSelectedZoneId(String(zone.zoneId));
+        if (!selectedEncounterIdInGroup) {
+          const firstEncounter = zone.encounters[0];
+          if (firstEncounter) {
+            setSelectedEncounterIdInGroup(String(firstEncounter.id));
+          }
+        }
       }
       setStatus(`Groups loaded: ${groups.length}`);
     } catch (e) {
@@ -408,7 +383,6 @@ export default function ReportAnalyzer() {
 
     const qpEncounterId = params.get('encounterId');
     if (qpEncounterId) {
-      setEncounterId(qpEncounterId);
       setSelectedEncounterIdInGroup(qpEncounterId);
     }
 
@@ -500,8 +474,8 @@ export default function ReportAnalyzer() {
         q.set('fightId', selectedFightId);
       }
     } else {
-      if (encounterId) {
-        q.set('encounterId', encounterId);
+      if (selectedEncounterIdInGroup) {
+        q.set('encounterId', selectedEncounterIdInGroup);
       }
       q.set('metric', metric);
       if (pageSize) {
@@ -526,7 +500,7 @@ export default function ReportAnalyzer() {
     onlyKill,
     difficulty,
     selectedFightId,
-    encounterId,
+    selectedEncounterIdInGroup,
     metric,
     pageSize,
     selectedRankingKey
@@ -575,16 +549,14 @@ export default function ReportAnalyzer() {
         ) : (
           <>
             <label>
-              Encounter ID
-              <input value={encounterId} onChange={(e) => setEncounterId(e.target.value)} placeholder="123" />
-            </label>
-            <label>
               Zone
               <select
                 value={selectedZoneId}
                 onChange={(e) => {
-                  setSelectedZoneId(e.target.value);
-                  setSelectedEncounterIdInGroup('');
+                  const nextZoneId = e.target.value;
+                  setSelectedZoneId(nextZoneId);
+                  const nextZone = encounterGroups.find((g) => String(g.zoneId) === nextZoneId);
+                  setSelectedEncounterIdInGroup(nextZone?.encounters[0] ? String(nextZone.encounters[0].id) : '');
                 }}
               >
                 <option value="">Select zone</option>
@@ -601,7 +573,6 @@ export default function ReportAnalyzer() {
                 value={selectedEncounterIdInGroup}
                 onChange={(e) => {
                   setSelectedEncounterIdInGroup(e.target.value);
-                  setEncounterId(e.target.value);
                 }}
               >
                 <option value="">Select encounter</option>
@@ -612,17 +583,6 @@ export default function ReportAnalyzer() {
                 ))}
               </select>
             </label>
-            <label className="searchBox">
-              Encounter Name
-              <input
-                value={encounterKeyword}
-                onChange={(e) => setEncounterKeyword(e.target.value)}
-                placeholder="Vamp Fatale"
-              />
-            </label>
-            <button onClick={searchEncounter} disabled={!encounterKeyword || loadingFights || loadingAnalyze}>
-              {loadingFights ? 'Searching...' : 'Find Encounter'}
-            </button>
             <label>
               Metric
               <select value={metric} onChange={(e) => setMetric(e.target.value as RankingMetric)}>
@@ -638,7 +598,7 @@ export default function ReportAnalyzer() {
             </label>
             <button
               onClick={loadRankings}
-              disabled={!encounterId || !difficulty || !metric || loadingFights || loadingAnalyze}
+              disabled={!selectedEncounterIdInGroup || !difficulty || !metric || loadingFights || loadingAnalyze}
             >
               {loadingFights ? 'Fetching rankings...' : 'Fetch Rankings'}
             </button>
@@ -666,11 +626,14 @@ export default function ReportAnalyzer() {
       </section>
 
       <p className="helpText">
-        `Fetch ...` は一覧の取得のみです。`Run Analysis` は選択したfightのイベントを取得して、タイムライン/集計を生成します。
+        Rankings: `Zone` と `Encounter` を選んで `Fetch Rankings`。一覧から1件選択後に `Run Analysis` を実行します。
       </p>
 
-      <p className={`loadingStatus ${loadingFights || loadingAnalyze ? 'active' : ''}`}>
-        {loadingFights || loadingAnalyze ? 'Processing...' : 'Ready'} {status}
+      <p className={`loadingStatus ${loadingFights || loadingAnalyze ? 'active' : ''}`} role="status" aria-live="polite">
+        {loadingFights || loadingAnalyze ? <span className="spinner" aria-hidden="true" /> : null}
+        <span>{loadingFights || loadingAnalyze ? 'Processing' : 'Ready'}</span>
+        {loadingFights || loadingAnalyze ? <span className="loadingDots" aria-hidden="true" /> : null}
+        <span>{status}</span>
       </p>
 
       {error ? <p className="errorMsg">{error}</p> : null}
@@ -745,35 +708,6 @@ export default function ReportAnalyzer() {
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
-
-      {mode === 'rankings' && encounterCandidates.length > 0 ? (
-        <section className="tableWrap fightsWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Encounter ID</th>
-                <th>Encounter</th>
-                <th>Zone</th>
-                <th>Use</th>
-              </tr>
-            </thead>
-            <tbody>
-              {encounterCandidates.map((e) => (
-                <tr key={`${e.id}-${e.zoneId ?? 0}`}>
-                  <td>{e.id}</td>
-                  <td>{e.name}</td>
-                  <td>{e.zoneName ?? '-'}</td>
-                  <td>
-                    <button type="button" onClick={() => setEncounterId(String(e.id))}>
-                      Set ID
-                    </button>
-                  </td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </section>

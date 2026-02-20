@@ -92,6 +92,9 @@ body {
   margin: 8px 2px;
   color: var(--muted);
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .helpText {
@@ -103,6 +106,23 @@ body {
 .loadingStatus.active {
   color: var(--accent);
   font-weight: 700;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 183, 3, 0.35);
+  border-top-color: #ffb703;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingDots::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: dots 1.2s steps(4, end) infinite;
 }
 
 .fightsWrap {
@@ -157,6 +177,43 @@ body {
   background: rgba(7, 15, 26, 0.6);
 }
 
+.timelineBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(65, 90, 119, 0.55);
+  border-radius: 10px;
+  background: rgba(7, 15, 26, 0.6);
+}
+
+.timelineSetting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timelineSetting select {
+  min-width: 84px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--ink);
+  background: #10233a;
+}
+
+.timelineBar .status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .playersPanel .check {
   display: inline-flex;
   align-items: center;
@@ -175,8 +232,9 @@ body {
 
 table {
   border-collapse: collapse;
-  min-width: 1400px;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
+  table-layout: fixed;
 }
 
 th,
@@ -186,6 +244,7 @@ td {
   vertical-align: top;
   font-size: 12px;
   line-height: 1.4;
+  overflow: hidden;
 }
 
 thead th {
@@ -194,6 +253,49 @@ thead th {
   z-index: 3;
   background: #0f1724;
   color: var(--accent);
+}
+
+.thInner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+}
+
+.thInner > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colResizer {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 20px;
+  height: calc(100% + 20px);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.colResizer::before {
+  content: '';
+  position: absolute;
+  right: 9px;
+  top: 15%;
+  width: 2px;
+  height: 70%;
+  background: rgba(126, 156, 188, 0.5);
+  border-radius: 2px;
+}
+
+.bossResizer {
+  right: -14px;
+  width: 28px;
+  z-index: 6;
 }
 
 .stickyCol {
@@ -216,7 +318,7 @@ tbody tr:nth-child(odd) {
 
 tbody td {
   color: #e8eef4;
-  min-width: 220px;
+  min-width: 0;
 }
 
 .abilityList {
@@ -233,6 +335,16 @@ tbody td {
   border: 1px solid #2f5f73;
   border-radius: 6px;
   padding: 2px 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.abilityItem > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .abilityItem.hit {
@@ -249,4 +361,28 @@ tbody td {
 
 .dash {
   color: #89a4bd;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75% {
+    content: '...';
+  }
+  100% {
+    content: '';
+  }
 }

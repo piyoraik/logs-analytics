@@ -16,14 +16,6 @@ function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
-function containsKeyword(list: AbilityUse[], keyword: string): boolean {
-  if (!keyword) {
-    return true;
-  }
-  const k = keyword.toLowerCase();
-  return list.some((x) => x.ability.toLowerCase().includes(k) || String(x.abilityId).includes(k));
-}
-
 function rowHasAnyContent(row: GridRow, visiblePlayers: string[]): boolean {
   if (row.boss.length > 0) {
     return true;
@@ -46,26 +38,22 @@ async function fetchIconChunk(ids: number[], lang: string): Promise<Record<strin
 
 function AbilityCell({
   list,
-  keyword,
   iconMap
 }: {
   list: AbilityUse[];
-  keyword: string;
   iconMap: Record<string, string>;
 }) {
   if (list.length === 0) {
     return <span className="dash">-</span>;
   }
 
-  const k = keyword.toLowerCase();
   return (
     <div className="abilityList">
       {list.map((x, i) => {
-        const matched = !k || x.ability.toLowerCase().includes(k) || String(x.abilityId).includes(k);
         const icon = iconMap[String(x.abilityId)];
 
         return (
-          <span key={`${x.abilityId}-${i}`} className={`abilityItem ${matched ? 'hit' : ''}`}>
+          <span key={`${x.abilityId}-${i}`} className="abilityItem">
             {icon ? (
               <img
                 className="abilityIcon"
@@ -85,44 +73,77 @@ function AbilityCell({
 }
 
 export default function TimelineGrid({ model }: Props) {
-  const duration = Math.ceil(model.selectedFight.durationMs / 1000);
-
-  const [startSec, setStartSec] = useState(0);
-  const [endSec, setEndSec] = useState(Math.min(180, duration));
-  const [keyword, setKeyword] = useState('');
-  const [showBossOnly, setShowBossOnly] = useState(false);
+  const [timeStepSec, setTimeStepSec] = useState(1);
   const [enabledPlayers, setEnabledPlayers] = useState<Record<string, boolean>>(
     Object.fromEntries(model.players.map((p) => [p, true]))
   );
   const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [iconLoading, setIconLoading] = useState(false);
   const requestedIconIdsRef = useRef<Set<number>>(new Set());
+  const [colWidths, setColWidths] = useState<Record<string, number>>({
+    time: 96,
+    boss: 360
+  });
 
   const visiblePlayers = useMemo(
     () => model.players.filter((p) => enabledPlayers[p]),
     [model.players, enabledPlayers]
   );
+  const columnKeys = useMemo(() => ['time', 'boss', ...visiblePlayers], [visiblePlayers]);
 
   const filteredRows = useMemo(() => {
-    return model.rows
-      .filter((row) => row.second >= startSec && row.second <= endSec)
-      .filter((row) => {
-        if (keyword && !containsKeyword(row.boss, keyword)) {
-          const hitPlayer = visiblePlayers.some((p) => containsKeyword(row.players[p] ?? [], keyword));
-          if (!hitPlayer) {
-            return false;
-          }
+    return model.rows.filter((row) => rowHasAnyContent(row, visiblePlayers));
+  }, [model.rows, visiblePlayers]);
+
+  const displayedRows = useMemo(() => {
+    if (timeStepSec <= 1) {
+      return filteredRows;
+    }
+    const buckets = new Map<number, GridRow>();
+    for (const row of filteredRows) {
+      const bucket = Math.floor(row.second / timeStepSec) * timeStepSec;
+      const current = buckets.get(bucket) ?? { second: bucket, boss: [], players: {} };
+      current.boss.push(...row.boss);
+      for (const player of visiblePlayers) {
+        const events = row.players[player] ?? [];
+        if (events.length === 0) {
+          continue;
         }
-        if (showBossOnly) {
-          return row.boss.length > 0;
-        }
-        return rowHasAnyContent(row, visiblePlayers);
-      });
-  }, [model.rows, startSec, endSec, keyword, showBossOnly, visiblePlayers]);
+        const prev = current.players[player] ?? [];
+        prev.push(...events);
+        current.players[player] = prev;
+      }
+      buckets.set(bucket, current);
+    }
+    return [...buckets.values()].sort((a, b) => a.second - b.second);
+  }, [filteredRows, timeStepSec, visiblePlayers]);
+
+  const handleResizeStart = (columnKey: string, startX: number) => {
+    const current = colWidths[columnKey] ?? (columnKey === 'time' ? 96 : 320);
+    const minWidth = columnKey === 'time' ? 72 : 180;
+    const maxWidth = 1200;
+    const speed = columnKey === 'boss' ? 1.35 : 1;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = (ev.clientX - startX) * speed;
+      const next = Math.max(minWidth, Math.min(maxWidth, current + delta));
+      setColWidths((prev) => ({ ...prev, [columnKey]: next }));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   const missingIconIds = useMemo(() => {
     const ids = new Set<number>();
-    for (const row of filteredRows) {
+    for (const row of displayedRows) {
       for (const e of row.boss) {
         if (!iconMap[String(e.abilityId)]) {
           ids.add(e.abilityId);
@@ -137,7 +158,7 @@ export default function TimelineGrid({ model }: Props) {
       }
     }
     return [...ids];
-  }, [filteredRows, visiblePlayers, iconMap]);
+  }, [displayedRows, visiblePlayers, iconMap]);
 
   useEffect(() => {
     const targets = missingIconIds.filter((id) => !requestedIconIdsRef.current.has(id));
@@ -177,24 +198,18 @@ export default function TimelineGrid({ model }: Props) {
 
   return (
     <>
-      <section className="controls">
-        <label>
-          Start(s)
-          <input type="number" min={0} max={duration} value={startSec} onChange={(e) => setStartSec(Number(e.target.value))} />
-        </label>
-        <label>
-          End(s)
-          <input type="number" min={0} max={duration} value={endSec} onChange={(e) => setEndSec(Number(e.target.value))} />
-        </label>
-        <label className="searchBox">
-          Search
-          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="ability名 or ID" />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={showBossOnly} onChange={(e) => setShowBossOnly(e.target.checked)} />
-          Boss-only rows
+      <section className="timelineBar">
+        <label className="timelineSetting">
+          Time Step(s)
+          <select value={timeStepSec} onChange={(e) => setTimeStepSec(Number(e.target.value))}>
+            <option value={1}>1</option>
+            <option value={2}>2</option>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+          </select>
         </label>
         <span className="status">
+          {iconLoading ? <span className="spinner" aria-hidden="true" /> : null}
           {iconLoading ? `Icon fetch: loading ${missingIconIds.length}` : `Icon cache: ${Object.keys(iconMap).length}`}
         </span>
       </section>
@@ -214,35 +229,65 @@ export default function TimelineGrid({ model }: Props) {
 
       <section className="tableWrap">
         <table>
+          <colgroup>
+            {columnKeys.map((key) => (
+              <col key={key} style={{ width: `${colWidths[key] ?? (key === 'time' ? 96 : 320)}px` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="stickyCol">Time(s)</th>
-              <th>Boss ({model.bossName})</th>
-              {showBossOnly
-                ? null
-                : visiblePlayers.map((p) => (
-                    <th key={p}>{p}</th>
-                  ))}
+              <th className="stickyCol">
+                <div className="thInner">
+                  <span>Time(s)</span>
+                  <span
+                    className="colResizer"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleResizeStart('time', e.clientX);
+                    }}
+                  />
+                </div>
+              </th>
+              <th>
+                <div className="thInner">
+                  <span>Boss ({model.bossName})</span>
+                  <span
+                    className="colResizer bossResizer"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleResizeStart('boss', e.clientX);
+                    }}
+                  />
+                </div>
+              </th>
+              {visiblePlayers.map((p) => (
+                <th key={p}>
+                  <div className="thInner">
+                    <span>{p}</span>
+                    <span
+                      className="colResizer"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleResizeStart(p, e.clientX);
+                      }}
+                    />
+                  </div>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row) => (
+            {displayedRows.map((row) => (
               <tr key={row.second}>
                 <td className="stickyCol timeCol">{row.second.toFixed(2)}</td>
                 <td>
-                  <AbilityCell list={row.boss} keyword={keyword} iconMap={iconMap} />
+                  <AbilityCell list={row.boss} iconMap={iconMap} />
                 </td>
-                {showBossOnly
-                  ? null
-                  : visiblePlayers.map((p) => (
-                      <td key={`${row.second}-${p}`}>
-                        <AbilityCell
-                          list={row.players[p] ?? []}
-                          keyword={keyword}
-                          iconMap={iconMap}
-                        />
-                      </td>
-                    ))}
+                {visiblePlayers.map((p) => (
+                  <td key={`${row.second}-${p}`}>
+                    <AbilityCell list={row.players[p] ?? []} iconMap={iconMap} />
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
