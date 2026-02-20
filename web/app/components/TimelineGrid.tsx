@@ -1,9 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AbilityUse, GridRow, ViewModel } from '../../lib/types';
-
-type DisplayMode = 'text' | 'icon' | 'both';
 
 interface Props {
   model: ViewModel;
@@ -33,39 +31,26 @@ function rowHasAnyContent(row: GridRow, visiblePlayers: string[]): boolean {
   return visiblePlayers.some((p) => (row.players[p] ?? []).length > 0);
 }
 
-async function fetchIcons(ids: number[], lang: string): Promise<Record<string, string>> {
+async function fetchIconChunk(ids: number[], lang: string): Promise<Record<string, string>> {
   if (ids.length === 0) {
     return {};
   }
-
-  const chunks: number[][] = [];
-  for (let i = 0; i < ids.length; i += 120) {
-    chunks.push(ids.slice(i, i + 120));
+  const q = encodeURIComponent(ids.join(','));
+  const res = await fetch(apiUrl(`/ability-icons?ids=${q}&lang=${encodeURIComponent(lang)}`));
+  if (!res.ok) {
+    return {};
   }
-
-  const merged: Record<string, string> = {};
-  for (const chunk of chunks) {
-    const q = encodeURIComponent(chunk.join(','));
-    const res = await fetch(apiUrl(`/ability-icons?ids=${q}&lang=${encodeURIComponent(lang)}`));
-    if (!res.ok) {
-      continue;
-    }
-    const json = (await res.json()) as { icons?: Record<string, string> };
-    Object.assign(merged, json.icons ?? {});
-  }
-
-  return merged;
+  const json = (await res.json()) as { icons?: Record<string, string> };
+  return json.icons ?? {};
 }
 
 function AbilityCell({
   list,
   keyword,
-  display,
   iconMap
 }: {
   list: AbilityUse[];
   keyword: string;
-  display: DisplayMode;
   iconMap: Record<string, string>;
 }) {
   if (list.length === 0) {
@@ -81,10 +66,17 @@ function AbilityCell({
 
         return (
           <span key={`${x.abilityId}-${i}`} className={`abilityItem ${matched ? 'hit' : ''}`}>
-            {(display === 'icon' || display === 'both') && icon ? (
-              <img className="abilityIcon" src={icon} alt={x.ability} title={`${x.ability} [${x.abilityId}]`} />
+            {icon ? (
+              <img
+                className="abilityIcon"
+                src={icon}
+                alt={x.ability}
+                title={`${x.ability} [${x.abilityId}]`}
+                loading="lazy"
+                decoding="async"
+              />
             ) : null}
-            {display === 'icon' ? null : <span>{`${x.ability} [${x.abilityId}]`}</span>}
+            <span>{`${x.ability} [${x.abilityId}]`}</span>
           </span>
         );
       })}
@@ -99,12 +91,12 @@ export default function TimelineGrid({ model }: Props) {
   const [endSec, setEndSec] = useState(Math.min(180, duration));
   const [keyword, setKeyword] = useState('');
   const [showBossOnly, setShowBossOnly] = useState(false);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('text');
   const [enabledPlayers, setEnabledPlayers] = useState<Record<string, boolean>>(
     Object.fromEntries(model.players.map((p) => [p, true]))
   );
   const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [iconLoading, setIconLoading] = useState(false);
+  const requestedIconIdsRef = useRef<Set<number>>(new Set());
 
   const visiblePlayers = useMemo(
     () => model.players.filter((p) => enabledPlayers[p]),
@@ -129,9 +121,6 @@ export default function TimelineGrid({ model }: Props) {
   }, [model.rows, startSec, endSec, keyword, showBossOnly, visiblePlayers]);
 
   const missingIconIds = useMemo(() => {
-    if (displayMode === 'text') {
-      return [];
-    }
     const ids = new Set<number>();
     for (const row of filteredRows) {
       for (const e of row.boss) {
@@ -148,22 +137,33 @@ export default function TimelineGrid({ model }: Props) {
       }
     }
     return [...ids];
-  }, [displayMode, filteredRows, visiblePlayers, iconMap]);
+  }, [filteredRows, visiblePlayers, iconMap]);
 
   useEffect(() => {
-    if (missingIconIds.length === 0) {
+    const targets = missingIconIds.filter((id) => !requestedIconIdsRef.current.has(id));
+    if (targets.length === 0) {
       return;
+    }
+    for (const id of targets) {
+      requestedIconIdsRef.current.add(id);
+    }
+
+    const chunks: number[][] = [];
+    for (let i = 0; i < targets.length; i += 120) {
+      chunks.push(targets.slice(i, i + 120));
     }
 
     let mounted = true;
     setIconLoading(true);
-    fetchIcons(missingIconIds, 'ja')
-      .then((icons) => {
-        if (!mounted) {
+    Promise.allSettled(
+      chunks.map(async (chunk) => {
+        const icons = await fetchIconChunk(chunk, 'ja');
+        if (!mounted || Object.keys(icons).length === 0) {
           return;
         }
         setIconMap((prev) => ({ ...prev, ...icons }));
       })
+    )
       .finally(() => {
         if (mounted) {
           setIconLoading(false);
@@ -190,24 +190,12 @@ export default function TimelineGrid({ model }: Props) {
           Search
           <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="ability名 or ID" />
         </label>
-        <label>
-          Display
-          <select value={displayMode} onChange={(e) => setDisplayMode(e.target.value as DisplayMode)}>
-            <option value="text">Text</option>
-            <option value="icon">Icon</option>
-            <option value="both">Both</option>
-          </select>
-        </label>
         <label className="check">
           <input type="checkbox" checked={showBossOnly} onChange={(e) => setShowBossOnly(e.target.checked)} />
           Boss-only rows
         </label>
         <span className="status">
-          {displayMode === 'text'
-            ? 'Icon fetch: off'
-            : iconLoading
-              ? `Icon fetch: loading ${missingIconIds.length}`
-              : `Icon cache: ${Object.keys(iconMap).length}`}
+          {iconLoading ? `Icon fetch: loading ${missingIconIds.length}` : `Icon cache: ${Object.keys(iconMap).length}`}
         </span>
       </section>
 
@@ -242,7 +230,7 @@ export default function TimelineGrid({ model }: Props) {
               <tr key={row.second}>
                 <td className="stickyCol timeCol">{row.second.toFixed(2)}</td>
                 <td>
-                  <AbilityCell list={row.boss} keyword={keyword} display={displayMode} iconMap={iconMap} />
+                  <AbilityCell list={row.boss} keyword={keyword} iconMap={iconMap} />
                 </td>
                 {showBossOnly
                   ? null
@@ -251,7 +239,6 @@ export default function TimelineGrid({ model }: Props) {
                         <AbilityCell
                           list={row.players[p] ?? []}
                           keyword={keyword}
-                          display={displayMode}
                           iconMap={iconMap}
                         />
                       </td>
