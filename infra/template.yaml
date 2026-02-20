@@ -1,0 +1,269 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: FFLogs analytics backend (Lambda + DynamoDB + EventBridge)
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+  FFLogsClientId:
+    Type: String
+    NoEcho: true
+  FFLogsClientSecret:
+    Type: String
+    NoEcho: true
+  FFLogsTokenUrl:
+    Type: String
+    Default: https://www.fflogs.com/oauth/token
+  FFLogsGraphqlUrl:
+    Type: String
+    Default: https://www.fflogs.com/api/v2/client
+  XivApiBaseUrl:
+    Type: String
+    Default: https://v2.xivapi.com
+  XivApiLang:
+    Type: String
+    Default: ja
+  AbilitySeedIds:
+    Type: String
+    Default: ''
+  AbilitySyncSchedule:
+    Type: String
+    Default: rate(1 day)
+  AbilitySyncPageLimit:
+    Type: Number
+    Default: 500
+  AbilitySyncMaxPages:
+    Type: Number
+    Default: 200
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 1024
+    Environment:
+      Variables:
+        FFLOGS_CLIENT_ID: !Ref FFLogsClientId
+        FFLOGS_CLIENT_SECRET: !Ref FFLogsClientSecret
+        FFLOGS_TOKEN_URL: !Ref FFLogsTokenUrl
+        FFLOGS_GRAPHQL_URL: !Ref FFLogsGraphqlUrl
+        XIVAPI_BASE_URL: !Ref XivApiBaseUrl
+        XIVAPI_LANG: !Ref XivApiLang
+        ABILITY_MASTER_TABLE: !Ref AbilityMasterTable
+        ANALYSIS_CACHE_TABLE: !Ref AnalysisCacheTable
+        ABILITY_SEED_IDS: !Ref AbilitySeedIds
+        ABILITY_SYNC_PAGE_LIMIT: !Ref AbilitySyncPageLimit
+        ABILITY_SYNC_MAX_PAGES: !Ref AbilitySyncMaxPages
+        STAGE_NAME: !Ref StageName
+
+Resources:
+  ApiGateway:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+
+  AbilityMasterTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: abilityId
+          AttributeType: N
+      KeySchema:
+        - AttributeName: abilityId
+          KeyType: HASH
+      TableName: !Sub fflogs-ability-master-${StageName}
+
+  AnalysisCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: cacheKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: cacheKey
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      TableName: !Sub fflogs-analysis-cache-${StageName}
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda/api-handler.handler
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /health
+            Method: GET
+        ReportFights:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /report/fights
+            Method: GET
+        RankingsSearch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /rankings/search
+            Method: GET
+        EncountersSearch:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /encounters/search
+            Method: GET
+        EncountersGroups:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /encounters/groups
+            Method: GET
+        AbilityIcons:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /ability-icons
+            Method: GET
+        AnalyzeReport:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /report/analyze
+            Method: POST
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AbilityMasterTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnalysisCacheTable
+
+  AbilitySyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda/ability-sync-handler.handler
+      Timeout: 900
+      MemorySize: 1024
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt AbilitySyncDlq.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AbilityMasterTable
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref AbilitySyncSchedule
+            Enabled: true
+
+  AbilitySyncInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref AbilitySyncFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 2
+      MaximumEventAgeInSeconds: 21600
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt AbilitySyncDlq.Arn
+
+  AbilitySyncDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub fflogs-ability-sync-dlq-${StageName}
+      MessageRetentionPeriod: 1209600
+
+  ApiFunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub fflogs-api-errors-${StageName}
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  AbilitySyncErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub fflogs-ability-sync-errors-${StageName}
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AbilitySyncFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  AbilitySyncDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub fflogs-ability-sync-duration-${StageName}
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AbilitySyncFunction
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 840000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  AbilitySyncDlqVisibleMessagesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub fflogs-ability-sync-dlq-visible-${StageName}
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt AbilitySyncDlq.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiBaseUrl:
+    Description: HTTP API base URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+  AbilityMasterTableName:
+    Value: !Ref AbilityMasterTable
+  AnalysisCacheTableName:
+    Value: !Ref AnalysisCacheTable
+  AbilitySyncFunctionName:
+    Value: !Ref AbilitySyncFunction
+  AbilitySyncDlqUrl:
+    Value: !Ref AbilitySyncDlq
