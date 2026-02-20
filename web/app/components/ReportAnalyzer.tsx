@@ -153,6 +153,7 @@ function toOptionalNumber(value: string): number | undefined {
 
 export default function ReportAnalyzer() {
   const initializedRef = useRef(false);
+  const autoAnalyzeTriedRef = useRef(false);
 
   const [mode, setMode] = useState<SourceMode>('report');
 
@@ -309,36 +310,40 @@ export default function ReportAnalyzer() {
   };
 
   const runAnalyze = async () => {
+    const payload =
+      mode === 'report'
+        ? {
+            reportCode: reportCode.trim(),
+            strategy,
+            onlyKill,
+            difficulty: difficulty ? Number(difficulty) : undefined,
+            fightId: selectedFight?.id ?? toOptionalNumber(selectedFightId),
+            translate: true,
+            locale: 'ja',
+            xivapiFallback: true,
+            xivapiLang: 'ja'
+          }
+        : {
+            reportCode: selectedRanking?.reportCode,
+            fightId: selectedRanking?.fightID,
+            strategy: 'best',
+            onlyKill,
+            difficulty: Number(difficulty),
+            translate: true,
+            locale: 'ja',
+            xivapiFallback: true,
+            xivapiLang: 'ja'
+          };
+
+    await runAnalyzeWithPayload(payload);
+  };
+
+  const runAnalyzeWithPayload = async (payload: Record<string, unknown>) => {
     setError('');
     setUnresolvedHint('');
     setStatus('Analyzing selected fight...');
     setLoadingAnalyze(true);
     try {
-      const payload =
-        mode === 'report'
-          ? {
-              reportCode: reportCode.trim(),
-              strategy,
-              onlyKill,
-              difficulty: difficulty ? Number(difficulty) : undefined,
-              fightId: selectedFight?.id ?? toOptionalNumber(selectedFightId),
-              translate: true,
-              locale: 'ja',
-              xivapiFallback: true,
-              xivapiLang: 'ja'
-            }
-          : {
-              reportCode: selectedRanking?.reportCode,
-              fightId: selectedRanking?.fightID,
-              strategy: 'best',
-              onlyKill,
-              difficulty: Number(difficulty),
-              translate: true,
-              locale: 'ja',
-              xivapiFallback: true,
-              xivapiLang: 'ja'
-            };
-
       const result = await analyze(payload);
       const vm = buildViewModel(result.selectedFight, result.bossTimeline, result.playersCasts);
       setModel(vm);
@@ -420,6 +425,58 @@ export default function ReportAnalyzer() {
     const qpRankingKey = params.get('rankingKey');
     if (qpRankingKey) {
       setSelectedRankingKey(qpRankingKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!initializedRef.current || autoAnalyzeTriedRef.current) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const qpMode = params.get('mode') ?? 'report';
+
+    if (qpMode === 'report') {
+      const qpReport = params.get('report')?.trim();
+      if (!qpReport) {
+        return;
+      }
+      autoAnalyzeTriedRef.current = true;
+      void runAnalyzeWithPayload({
+        reportCode: qpReport,
+        strategy: params.get('strategy') ?? 'best',
+        onlyKill: params.get('onlyKill') !== 'false',
+        difficulty: toOptionalNumber(params.get('difficulty') ?? ''),
+        fightId: toOptionalNumber(params.get('fightId') ?? ''),
+        translate: true,
+        locale: 'ja',
+        xivapiFallback: true,
+        xivapiLang: 'ja'
+      });
+      return;
+    }
+
+    if (qpMode === 'rankings') {
+      const rankingKey = params.get('rankingKey');
+      if (!rankingKey) {
+        return;
+      }
+      const [rc, fid] = rankingKey.split(':');
+      const fightId = toOptionalNumber(fid ?? '');
+      if (!rc || !fightId) {
+        return;
+      }
+      autoAnalyzeTriedRef.current = true;
+      void runAnalyzeWithPayload({
+        reportCode: rc,
+        strategy: 'best',
+        onlyKill: params.get('onlyKill') !== 'false',
+        difficulty: toOptionalNumber(params.get('difficulty') ?? ''),
+        fightId,
+        translate: true,
+        locale: 'ja',
+        xivapiFallback: true,
+        xivapiLang: 'ja'
+      });
     }
   }, []);
 
