@@ -83,6 +83,11 @@ export interface RankingEntry {
   amount: number;
   reportCode: string;
   fightID: number;
+  bestPercent?: number;
+  highestRdps?: number;
+  kill?: boolean;
+  fastestSec?: number;
+  medianRdps?: number;
   characterName?: string;
   serverName?: string;
   region?: string;

@@ -77,6 +77,21 @@ body {
   cursor: not-allowed;
 }
 
+.analyzeBtn {
+  min-width: 92px;
+}
+
+.analyzeBtn.loading {
+  cursor: progress;
+}
+
+.btnLoadingContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
 .errorMsg {
   color: #ff8fab;
   margin: 8px 2px;
@@ -109,6 +124,8 @@ body {
 }
 
 .spinner {
+  display: inline-block;
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   border-radius: 50%;

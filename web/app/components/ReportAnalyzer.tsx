@@ -14,6 +14,11 @@ interface RankingEntry {
   amount: number;
   reportCode: string;
   fightID: number;
+  bestPercent?: number;
+  highestRdps?: number;
+  kill?: boolean;
+  fastestSec?: number;
+  medianRdps?: number;
   characterName?: string;
   serverName?: string;
   region?: string;
@@ -71,7 +76,10 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/+$/
 const USE_NEXT_API = process.env.NEXT_PUBLIC_USE_NEXT_API === 'true';
 
 function apiUrl(path: string): string {
-  if (path.startsWith('/character/') && (USE_NEXT_API || !API_BASE_URL)) {
+  if (USE_NEXT_API) {
+    return `/api${path}`;
+  }
+  if (path.startsWith('/character/') && !API_BASE_URL) {
     return `/api${path}`;
   }
   if (!API_BASE_URL) {
@@ -96,6 +104,7 @@ async function fetchRankings(params: {
   metric: string;
   difficulty: number;
   pageSize: number;
+  job?: string;
   timeoutMs?: number;
 }): Promise<RankingsFetchResponse> {
   const q = new URLSearchParams({
@@ -104,6 +113,9 @@ async function fetchRankings(params: {
     difficulty: String(params.difficulty),
     pageSize: String(params.pageSize)
   });
+  if (params.job?.trim()) {
+    q.set('job', params.job.trim());
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 30000);
@@ -194,6 +206,37 @@ const SERVER_OPTIONS: Record<string, string[]> = {
   KR: ['moogle', 'chocobo', 'carbuncle', 'cactuar', 'tonberry']
 };
 
+const JOB_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'All jobs' },
+  { value: 'paladin', label: 'PLD (Paladin)' },
+  { value: 'warrior', label: 'WAR (Warrior)' },
+  { value: 'darkknight', label: 'DRK (Dark Knight)' },
+  { value: 'gunbreaker', label: 'GNB (Gunbreaker)' },
+  { value: 'whitemage', label: 'WHM (White Mage)' },
+  { value: 'scholar', label: 'SCH (Scholar)' },
+  { value: 'astrologian', label: 'AST (Astrologian)' },
+  { value: 'sage', label: 'SGE (Sage)' },
+  { value: 'monk', label: 'MNK (Monk)' },
+  { value: 'dragoon', label: 'DRG (Dragoon)' },
+  { value: 'ninja', label: 'NIN (Ninja)' },
+  { value: 'samurai', label: 'SAM (Samurai)' },
+  { value: 'reaper', label: 'RPR (Reaper)' },
+  { value: 'viper', label: 'VPR (Viper)' },
+  { value: 'bard', label: 'BRD (Bard)' },
+  { value: 'machinist', label: 'MCH (Machinist)' },
+  { value: 'dancer', label: 'DNC (Dancer)' },
+  { value: 'blackmage', label: 'BLM (Black Mage)' },
+  { value: 'summoner', label: 'SMN (Summoner)' },
+  { value: 'redmage', label: 'RDM (Red Mage)' },
+  { value: 'pictomancer', label: 'PCT (Pictomancer)' }
+];
+const JOB_LABEL_BY_VALUE: Record<string, string> = JOB_OPTIONS.reduce<Record<string, string>>((acc, x) => {
+  if (x.value) {
+    acc[x.value] = x.label;
+  }
+  return acc;
+}, {});
+
 async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(body)) {
@@ -220,6 +263,142 @@ function toOptionalNumber(value: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function fmtNum(v?: number): string {
+  if (!Number.isFinite(v)) return '-';
+  return Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+function fmtSec(sec?: number): string {
+  if (!Number.isFinite(sec)) return '-';
+  const t = Number(sec);
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+const JOB_ID_TO_ABBR: Record<string, string> = {
+  '19': 'PLD',
+  '21': 'WAR',
+  '32': 'DRK',
+  '37': 'GNB',
+  '24': 'WHM',
+  '28': 'SCH',
+  '33': 'AST',
+  '40': 'SGE',
+  '20': 'MNK',
+  '22': 'DRG',
+  '30': 'NIN',
+  '34': 'SAM',
+  '39': 'RPR',
+  '41': 'VPR',
+  '23': 'BRD',
+  '31': 'MCH',
+  '38': 'DNC',
+  '25': 'BLM',
+  '27': 'SMN',
+  '35': 'RDM',
+  '42': 'PCT'
+};
+
+const JOB_ABBR_TO_VALUE: Record<string, string> = {
+  pld: 'paladin',
+  war: 'warrior',
+  drk: 'darkknight',
+  gnb: 'gunbreaker',
+  whm: 'whitemage',
+  sch: 'scholar',
+  ast: 'astrologian',
+  sge: 'sage',
+  mnk: 'monk',
+  drg: 'dragoon',
+  nin: 'ninja',
+  sam: 'samurai',
+  rpr: 'reaper',
+  vpr: 'viper',
+  brd: 'bard',
+  mch: 'machinist',
+  dnc: 'dancer',
+  blm: 'blackmage',
+  smn: 'summoner',
+  rdm: 'redmage',
+  pct: 'pictomancer'
+};
+const JOB_ID_TO_VALUE: Record<string, string> = {
+  '19': 'paladin',
+  '21': 'warrior',
+  '32': 'darkknight',
+  '37': 'gunbreaker',
+  '24': 'whitemage',
+  '28': 'scholar',
+  '33': 'astrologian',
+  '40': 'sage',
+  '20': 'monk',
+  '22': 'dragoon',
+  '30': 'ninja',
+  '34': 'samurai',
+  '39': 'reaper',
+  '41': 'viper',
+  '23': 'bard',
+  '31': 'machinist',
+  '38': 'dancer',
+  '25': 'blackmage',
+  '27': 'summoner',
+  '35': 'redmage',
+  '42': 'pictomancer'
+};
+
+function toJobValue(r: RankingEntry): string {
+  const spec = String(r.specName ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+  if (JOB_ABBR_TO_VALUE[spec]) {
+    return JOB_ABBR_TO_VALUE[spec];
+  }
+  if (JOB_LABEL_BY_VALUE[spec]) {
+    return spec;
+  }
+  const cls = String(r.className ?? '').trim().toLowerCase();
+  if (JOB_ID_TO_VALUE[cls]) {
+    return JOB_ID_TO_VALUE[cls];
+  }
+  if (JOB_ABBR_TO_VALUE[cls]) {
+    return JOB_ABBR_TO_VALUE[cls];
+  }
+  if (JOB_LABEL_BY_VALUE[cls]) {
+    return cls;
+  }
+  return '';
+}
+
+function toJobLabel(r: RankingEntry): string {
+  const value = toJobValue(r);
+  if (!value) {
+    const cls = String(r.className ?? '').trim().toLowerCase();
+    if (JOB_ID_TO_ABBR[cls]) return JOB_ID_TO_ABBR[cls];
+    return '';
+  }
+  return JOB_LABEL_BY_VALUE[value] ?? value.toUpperCase();
+}
+
+function sortRankings(list: RankingEntry[]): RankingEntry[] {
+  return [...list].sort((a, b) => {
+    const ar = Number.isFinite(a.rank) ? Number(a.rank) : Number.POSITIVE_INFINITY;
+    const br = Number.isFinite(b.rank) ? Number(b.rank) : Number.POSITIVE_INFINITY;
+    if (ar !== br) {
+      return ar - br;
+    }
+    const as = Number.isFinite(a.highestRdps) ? Number(a.highestRdps) : Number(a.amount ?? 0);
+    const bs = Number.isFinite(b.highestRdps) ? Number(b.highestRdps) : Number(b.amount ?? 0);
+    if (as !== bs) {
+      return bs - as;
+    }
+    const ap = Number.isFinite(a.bestPercent) ? Number(a.bestPercent) : -1;
+    const bp = Number.isFinite(b.bestPercent) ? Number(b.bestPercent) : -1;
+    return bp - ap;
+  });
+}
+
 export default function ReportAnalyzer() {
   const initializedRef = useRef(false);
   const autoAnalyzeTriedRef = useRef(false);
@@ -239,6 +418,7 @@ export default function ReportAnalyzer() {
   const [selectedEncounterIdInGroup, setSelectedEncounterIdInGroup] = useState('');
   const [metric, setMetric] = useState<RankingMetric>('dps');
   const [pageSize, setPageSize] = useState('10');
+  const [jobFilter, setJobFilter] = useState('');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [selectedRankingKey, setSelectedRankingKey] = useState('');
   const [characterName, setCharacterName] = useState('');
@@ -250,27 +430,17 @@ export default function ReportAnalyzer() {
 
   const [loadingFights, setLoadingFights] = useState(false);
   const [loadingAnalyze, setLoadingAnalyze] = useState(false);
+  const [analyzingActionKey, setAnalyzingActionKey] = useState('');
   const [status, setStatus] = useState('Idle');
   const [error, setError] = useState('');
   const [unresolvedHint, setUnresolvedHint] = useState('');
   const [model, setModel] = useState<ViewModel | null>(null);
 
-  const selectedFight = useMemo(() => {
-    const id = Number(selectedFightId);
-    if (!Number.isFinite(id)) {
-      return undefined;
-    }
-    return fights.find((f) => f.id === id);
-  }, [fights, selectedFightId]);
-
-  const selectedRanking = useMemo(() => {
-    return rankings.find((r) => `${r.reportCode}:${r.fightID}` === selectedRankingKey);
-  }, [rankings, selectedRankingKey]);
-
   const selectedZone = useMemo(
     () => encounterGroups.find((g) => String(g.zoneId) === selectedZoneId),
     [encounterGroups, selectedZoneId]
   );
+  const sortedRankings = useMemo(() => sortRankings(rankings), [rankings]);
 
   const loadReportFights = async () => {
     setError('');
@@ -317,10 +487,12 @@ export default function ReportAnalyzer() {
         metric,
         difficulty: difficultyNum,
         pageSize: pageSizeNum,
+        job: jobFilter,
         timeoutMs: 45000
       });
-      setRankings(list.rankings);
-      setSelectedRankingKey(list.rankings[0] ? `${list.rankings[0].reportCode}:${list.rankings[0].fightID}` : '');
+      const sorted = sortRankings(list.rankings);
+      setRankings(sorted);
+      setSelectedRankingKey(sorted[0] ? `${sorted[0].reportCode}:${sorted[0].fightID}` : '');
       if (list.fallbackApplied) {
         if (list.resolvedEncounterId != null) {
           setSelectedEncounterIdInGroup(String(list.resolvedEncounterId));
@@ -425,35 +597,6 @@ export default function ReportAnalyzer() {
     }
   };
 
-  const runAnalyze = async () => {
-    const payload =
-      mode === 'report'
-        ? {
-            reportCode: reportCode.trim(),
-            strategy,
-            onlyKill,
-            difficulty: difficulty ? Number(difficulty) : undefined,
-            fightId: selectedFight?.id ?? toOptionalNumber(selectedFightId),
-            translate: true,
-            locale: 'ja',
-            xivapiFallback: true,
-            xivapiLang: 'ja'
-          }
-        : {
-            reportCode: selectedRanking?.reportCode,
-            fightId: selectedRanking?.fightID,
-            strategy: 'best',
-            onlyKill,
-            difficulty: Number(difficulty),
-            translate: true,
-            locale: 'ja',
-            xivapiFallback: true,
-            xivapiLang: 'ja'
-          };
-
-    await runAnalyzeWithPayload(payload);
-  };
-
   const runAnalyzeWithPayload = async (payload: Record<string, unknown>) => {
     setError('');
     setUnresolvedHint('');
@@ -535,6 +678,10 @@ export default function ReportAnalyzer() {
     const qpPageSize = params.get('pageSize');
     if (qpPageSize) {
       setPageSize(qpPageSize);
+    }
+    const qpJob = params.get('job');
+    if (qpJob) {
+      setJobFilter(qpJob);
     }
 
     const qpRankingKey = params.get('rankingKey');
@@ -636,6 +783,9 @@ export default function ReportAnalyzer() {
         if (pageSize) {
           q.set('pageSize', pageSize);
         }
+        if (jobFilter.trim()) {
+          q.set('job', jobFilter.trim());
+        }
         if (selectedRankingKey) {
           q.set('rankingKey', selectedRankingKey);
         }
@@ -669,6 +819,7 @@ export default function ReportAnalyzer() {
     selectedEncounterIdInGroup,
     metric,
     pageSize,
+    jobFilter,
     selectedRankingKey,
     characterName,
     characterServer,
@@ -773,6 +924,16 @@ export default function ReportAnalyzer() {
               </select>
             </label>
             <label>
+              Job
+              <select value={jobFilter} onChange={(e) => setJobFilter(e.target.value)}>
+                {JOB_OPTIONS.map((job) => (
+                  <option key={job.value || 'all'} value={job.value}>
+                    {job.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               Page Size
               <input value={pageSize} onChange={(e) => setPageSize(e.target.value)} placeholder="10" />
             </label>
@@ -841,18 +1002,10 @@ export default function ReportAnalyzer() {
           <input type="checkbox" checked={onlyKill} onChange={(e) => setOnlyKill(e.target.checked)} />
           onlyKill
         </label>
-        {mode === 'character' ? null : (
-          <button
-            onClick={runAnalyze}
-            disabled={mode === 'report' ? !reportCode || loadingAnalyze : !selectedRanking || loadingAnalyze}
-          >
-            {loadingAnalyze ? 'Running analysis...' : 'Run Analysis'}
-          </button>
-        )}
       </section>
 
       <p className="helpText">
-        Character: 候補の `Use & Fetch` で即コンテンツ取得。内容が0件でも Recent Report があれば Report モードに移動できます。
+        Rankings/Report は各行の `Analyze` で即実行できます。Character は `Use & Fetch` で即コンテンツ取得できます。
       </p>
 
       <p className={`loadingStatus ${loadingFights || loadingAnalyze ? 'active' : ''}`} role="status" aria-live="polite">
@@ -875,7 +1028,7 @@ export default function ReportAnalyzer() {
                 <th>Kill</th>
                 <th>Difficulty</th>
                 <th>Duration(s)</th>
-                <th>Select</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -887,11 +1040,40 @@ export default function ReportAnalyzer() {
                   <td>{f.difficulty ?? '-'}</td>
                   <td>{((f.endTime - f.startTime) / 1000).toFixed(1)}</td>
                   <td>
-                    <input
-                      type="radio"
-                      checked={selectedFightId === String(f.id)}
-                      onChange={() => setSelectedFightId(String(f.id))}
-                    />
+                    <button
+                      className={`analyzeBtn ${loadingAnalyze && analyzingActionKey === `report:${f.id}` ? 'loading' : ''}`}
+                      type="button"
+                      disabled={loadingAnalyze || loadingFights}
+                      onClick={async () => {
+                        const actionKey = `report:${f.id}`;
+                        setAnalyzingActionKey(actionKey);
+                        setSelectedFightId(String(f.id));
+                        try {
+                          await runAnalyzeWithPayload({
+                            reportCode: reportCode.trim(),
+                            strategy,
+                            onlyKill,
+                            difficulty: difficulty ? Number(difficulty) : undefined,
+                            fightId: f.id,
+                            translate: true,
+                            locale: 'ja',
+                            xivapiFallback: true,
+                            xivapiLang: 'ja'
+                          });
+                        } finally {
+                          setAnalyzingActionKey('');
+                        }
+                      }}
+                    >
+                      {loadingAnalyze && analyzingActionKey === `report:${f.id}` ? (
+                        <span className="btnLoadingContent">
+                          <span className="spinner" aria-hidden="true" />
+                          Analyzing...
+                        </span>
+                      ) : (
+                        'Analyze'
+                      )}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -900,36 +1082,71 @@ export default function ReportAnalyzer() {
         </section>
       ) : null}
 
-      {mode === 'rankings' && rankings.length > 0 ? (
+      {mode === 'rankings' && sortedRankings.length > 0 ? (
         <section className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Amount</th>
-                <th>Report</th>
-                <th>Fight</th>
                 <th>Character</th>
-                <th>Select</th>
+                <th>Job</th>
+                <th>Best %</th>
+                <th>Highest rDPS</th>
+                <th>Kill</th>
+                <th>Fastest</th>
+                <th>Med</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {rankings.map((r, idx) => {
+              {sortedRankings.map((r, idx) => {
                 const key = `${r.reportCode}:${r.fightID}`;
                 const rowKey = `${key}:${r.rank}:${r.characterName ?? '-'}:${idx}`;
                 return (
                   <tr key={rowKey}>
                     <td>{r.rank}</td>
-                    <td>{r.amount}</td>
-                    <td>{r.reportCode}</td>
-                    <td>{r.fightID}</td>
                     <td>{r.characterName ?? '-'}</td>
+                    <td>{toJobLabel(r) || '-'}</td>
+                    <td>{fmtNum(r.bestPercent)}</td>
+                    <td>{fmtNum(r.highestRdps ?? r.amount)}</td>
+                    <td>{r.kill == null ? '-' : r.kill ? 'Yes' : 'No'}</td>
+                    <td>{fmtSec(r.fastestSec)}</td>
+                    <td>{fmtNum(r.medianRdps)}</td>
                     <td>
-                      <input
-                        type="radio"
-                        checked={selectedRankingKey === key}
-                        onChange={() => setSelectedRankingKey(key)}
-                      />
+                      <button
+                        className={`analyzeBtn ${loadingAnalyze && analyzingActionKey === `ranking:${key}` ? 'loading' : ''}`}
+                        type="button"
+                        disabled={loadingAnalyze || loadingFights}
+                        onClick={async () => {
+                          const actionKey = `ranking:${key}`;
+                          setAnalyzingActionKey(actionKey);
+                          setSelectedRankingKey(key);
+                          try {
+                            await runAnalyzeWithPayload({
+                              reportCode: r.reportCode,
+                              fightId: r.fightID,
+                              strategy: 'best',
+                              onlyKill,
+                              difficulty: Number(difficulty),
+                              translate: true,
+                              locale: 'ja',
+                              xivapiFallback: true,
+                              xivapiLang: 'ja'
+                            });
+                          } finally {
+                            setAnalyzingActionKey('');
+                          }
+                        }}
+                      >
+                        {loadingAnalyze && analyzingActionKey === `ranking:${key}` ? (
+                          <span className="btnLoadingContent">
+                            <span className="spinner" aria-hidden="true" />
+                            Analyzing...
+                          </span>
+                        ) : (
+                          'Analyze'
+                        )}
+                      </button>
                     </td>
                   </tr>
                 );

@@ -50,6 +50,91 @@ export interface RankingsParams {
   partition?: number;
 }
 
+function matchesJobFilter(entry: RankingEntry, job?: string): boolean {
+  const aliases: Record<string, string> = {
+    pld: 'paladin',
+    war: 'warrior',
+    drk: 'darkknight',
+    gnb: 'gunbreaker',
+    whm: 'whitemage',
+    sch: 'scholar',
+    ast: 'astrologian',
+    sge: 'sage',
+    mnk: 'monk',
+    drg: 'dragoon',
+    nin: 'ninja',
+    sam: 'samurai',
+    rpr: 'reaper',
+    vpr: 'viper',
+    brd: 'bard',
+    mch: 'machinist',
+    dnc: 'dancer',
+    blm: 'blackmage',
+    smn: 'summoner',
+    rdm: 'redmage',
+    pct: 'pictomancer'
+  };
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const canonicalToClassId: Record<string, string> = {
+    paladin: '19',
+    warrior: '21',
+    darkknight: '32',
+    gunbreaker: '37',
+    whitemage: '24',
+    scholar: '28',
+    astrologian: '33',
+    sage: '40',
+    monk: '20',
+    dragoon: '22',
+    ninja: '30',
+    samurai: '34',
+    reaper: '39',
+    viper: '41',
+    bard: '23',
+    machinist: '31',
+    dancer: '38',
+    blackmage: '25',
+    summoner: '27',
+    redmage: '35',
+    pictomancer: '42'
+  };
+  const qRaw = normalize(String(job ?? '').trim());
+  const q = aliases[qRaw] ?? qRaw;
+  if (!q) return true;
+  const c = normalize(String(entry.className ?? ''));
+  const s = normalize(String(entry.specName ?? ''));
+  const targetClassId = canonicalToClassId[q];
+  return (
+    c === q ||
+    s === q ||
+    c.includes(q) ||
+    s.includes(q) ||
+    (targetClassId != null && c === targetClassId)
+  );
+}
+
+function scoreForSort(entry: RankingEntry): number {
+  const a = Number.isFinite(entry.highestRdps) ? (entry.highestRdps as number) : Number(entry.amount ?? 0);
+  return Number.isFinite(a) ? a : 0;
+}
+
+function normalizeAndSortRankings(entries: RankingEntry[], params: RankingsParams): RankingEntry[] {
+  const filtered = entries.filter((e) => matchesJobFilter(e, params.className ?? params.specName));
+  filtered.sort((a, b) => {
+    const ra = Number.isFinite(a.rank) ? Number(a.rank) : Number.POSITIVE_INFINITY;
+    const rb = Number.isFinite(b.rank) ? Number(b.rank) : Number.POSITIVE_INFINITY;
+    if (ra !== rb) return ra - rb;
+    const sa = scoreForSort(a);
+    const sb = scoreForSort(b);
+    if (sa !== sb) return sb - sa;
+    const pa = Number.isFinite(a.bestPercent) ? (a.bestPercent as number) : -1;
+    const pb = Number.isFinite(b.bestPercent) ? (b.bestPercent as number) : -1;
+    if (pa !== pb) return pb - pa;
+    return 0;
+  });
+  return filtered;
+}
+
 function parseFightId(raw: any): number | null {
   const value = raw?.fightID ?? raw?.fightId ?? raw?.fight ?? raw?.encounterFightID ?? raw?.encounterFightId;
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -107,18 +192,131 @@ function normalizeRanking(raw: any): RankingEntry | null {
   if (!reportCode || fightID == null) {
     return null;
   }
+  const m = metricFields(raw);
 
   return {
     rank: Number(raw.rank ?? 0),
     amount: Number(raw.amount ?? 0),
     reportCode,
     fightID,
+    bestPercent: m.bestPercent,
+    highestRdps: m.highestRdps,
+    kill: m.kill,
+    fastestSec: m.fastestSec,
+    medianRdps: m.medianRdps,
     characterName: raw.character?.name ?? raw.name,
     serverName: raw.character?.server?.name ?? raw.server,
     region: raw.character?.server?.region?.slug,
     className: raw.character?.classID ? String(raw.character.classID) : raw.class ? String(raw.class) : undefined,
     specName: raw.character?.spec ? String(raw.character.spec) : raw.spec ? String(raw.spec) : undefined
   };
+}
+
+function readPath(obj: any, path: string): any {
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function readPathCI(obj: any, path: string): any {
+  const parts = path.split('.');
+  let cur = obj;
+  for (const rawPart of parts) {
+    if (!cur || typeof cur !== 'object') return undefined;
+    if (Object.prototype.hasOwnProperty.call(cur, rawPart)) {
+      cur = cur[rawPart];
+      continue;
+    }
+    const part = rawPart.toLowerCase();
+    const key = Object.keys(cur).find((k) => k.toLowerCase() === part);
+    if (!key) return undefined;
+    cur = cur[key];
+  }
+  return cur;
+}
+
+function pickNumber(obj: any, paths: string[]): number | undefined {
+  for (const p of paths) {
+    const v = readPathCI(obj, p);
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return v;
+    }
+    if (typeof v === 'string') {
+      const n = Number(v.replace(/,/g, '').trim());
+      if (Number.isFinite(n)) {
+        return n;
+      }
+    }
+  }
+  return undefined;
+}
+
+function pickBoolean(obj: any, paths: string[]): boolean | undefined {
+  for (const p of paths) {
+    const v = readPathCI(obj, p);
+    if (typeof v === 'boolean') {
+      return v;
+    }
+    if (typeof v === 'number') {
+      return v !== 0;
+    }
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'yes') return true;
+      if (s === 'false' || s === '0' || s === 'no') return false;
+    }
+  }
+  return undefined;
+}
+
+function toSeconds(v?: number): number | undefined {
+  if (!Number.isFinite(v)) return undefined;
+  if ((v as number) > 10000) {
+    return (v as number) / 1000;
+  }
+  return v;
+}
+
+function parseBracketData(raw: any): any {
+  const bd = raw?.bracketData;
+  if (!bd) return undefined;
+  if (typeof bd === 'string') {
+    try {
+      return JSON.parse(bd);
+    } catch {
+      return undefined;
+    }
+  }
+  return bd;
+}
+
+function metricFields(raw: any): {
+  bestPercent?: number;
+  highestRdps?: number;
+  kill?: boolean;
+  fastestSec?: number;
+  medianRdps?: number;
+} {
+  const bd = parseBracketData(raw);
+  const bestPercent =
+    pickNumber(raw, ['rankPercent', 'percentile', 'bestPercent']) ??
+    pickNumber(bd, ['rankPercent', 'percentile', 'bestPercent', 'historicalPercent']);
+  const highestRdps =
+    pickNumber(raw, ['rDPS', 'rdps', 'amount']) ??
+    pickNumber(bd, ['rDPS.max', 'rdps.max', 'rDPS', 'rdps', 'max']);
+  const kill = pickBoolean(raw, ['kill', 'isKill', 'success']) ?? pickBoolean(bd, ['kill', 'isKill', 'success']) ?? true;
+  const fastestSec = toSeconds(
+    pickNumber(raw, ['fastest', 'duration']) ??
+      pickNumber(bd, ['fastest', 'duration.min', 'duration.fastest', 'minDuration'])
+  );
+  const medianRdps =
+    pickNumber(raw, ['medianRdps', 'median']) ??
+    pickNumber(bd, ['rDPS.median', 'rdps.median', 'rDPS.avg', 'rdps.avg', 'median']);
+  return { bestPercent, highestRdps, kill, fastestSec, medianRdps };
 }
 
 function pickFightIdFromReport(
@@ -221,6 +419,7 @@ export async function getRankings(
     metric: string;
     difficulty?: number;
     size?: number;
+    page?: number;
     partition?: number;
   }) => {
     const variables: Record<string, unknown> = {
@@ -233,14 +432,39 @@ export async function getRankings(
     if (Number.isFinite(v.size)) {
       variables.size = v.size;
     }
+    if (Number.isFinite(v.page)) {
+      variables.page = v.page;
+    }
     if (typeof v.partition === 'number') {
       variables.partition = v.partition;
     }
     return client.request<RankingsQueryData>(CHARACTER_RANKINGS_QUERY, variables);
   };
 
+  const requestRankingsMetricOnly = async (v: {
+    encounterID: number;
+    metric: string;
+    size?: number;
+    page?: number;
+    partition?: number;
+  }) => {
+    const variables: Record<string, unknown> = {
+      encounterID: v.encounterID,
+      metric: v.metric
+    };
+    if (Number.isFinite(v.size)) {
+      variables.size = v.size;
+    }
+    if (Number.isFinite(v.page)) {
+      variables.page = v.page;
+    }
+    if (typeof v.partition === 'number') {
+      variables.partition = v.partition;
+    }
+    return client.request<RankingsQueryData>(CHARACTER_RANKINGS_QUERY_METRIC_ONLY, variables);
+  };
+
   const resolveRankingRows = async (rows: any[]): Promise<RankingEntry[]> => {
-    const desiredCount = Math.max(params.rankIndex + 1, Math.min(Math.max(params.pageSize ?? 10, 1), 10));
     const entries: RankingEntry[] = [];
     const unresolved: Array<{
       row: any;
@@ -251,9 +475,6 @@ export async function getRankings(
       const normalized = normalizeRanking(row);
       if (normalized) {
         entries.push(normalized);
-        if (entries.length >= desiredCount) {
-          return entries;
-        }
         continue;
       }
       const reportCode = parseReportCode(row);
@@ -261,12 +482,9 @@ export async function getRankings(
         continue;
       }
       unresolved.push({ row, reportCode });
-      if (unresolved.length >= 20) {
-        break;
-      }
     }
 
-    if (entries.length >= desiredCount || unresolved.length === 0) {
+    if (unresolved.length === 0) {
       return entries;
     }
 
@@ -288,6 +506,7 @@ export async function getRankings(
       if (!report) {
         continue;
       }
+      const m = metricFields(item.row);
       const inferredFightId = pickFightIdFromReport(
         report.fights,
         params.encounterID,
@@ -302,6 +521,11 @@ export async function getRankings(
         amount: Number(item.row?.amount ?? 0),
         reportCode: item.reportCode,
         fightID: inferredFightId,
+        bestPercent: m.bestPercent,
+        highestRdps: m.highestRdps,
+        kill: m.kill,
+        fastestSec: m.fastestSec,
+        medianRdps: m.medianRdps,
         characterName: item.row?.character?.name ?? item.row?.name,
         serverName: item.row?.character?.server?.name ?? item.row?.server,
         region: item.row?.character?.server?.region?.slug,
@@ -316,21 +540,61 @@ export async function getRankings(
             ? String(item.row.spec)
             : undefined
       });
-      if (entries.length >= desiredCount) {
-        break;
-      }
     }
 
     return entries;
   };
 
+  const safePageSize = Number.isFinite(params.pageSize as number)
+    ? Math.max(1, Math.min(100, Number(params.pageSize)))
+    : 10;
+  const targetCount = Math.max(params.rankIndex + 1, safePageSize);
+  const shouldScanWide = Boolean(params.className || params.specName);
+  const apiPageSize = Math.max(10, safePageSize);
+  const maxPages = shouldScanWide ? 20 : Math.max(2, Math.ceil(targetCount / apiPageSize) + 1);
+
+  const collectPagedRows = async (
+    seed: any[],
+    fetchPage: (page: number) => Promise<RankingsQueryData>
+  ): Promise<any[]> => {
+    const all = [...seed];
+    if (seed.length === 0) return all;
+    if (seed.length < apiPageSize) return all;
+    for (let page = 2; page <= maxPages; page += 1) {
+      let next: RankingsQueryData;
+      try {
+        next = await fetchPage(page);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('Unknown argument "page"')) {
+          break;
+        }
+        throw error;
+      }
+      const rows = extractRankingsRows(next.worldData.encounter?.characterRankings);
+      if (!rows.length) {
+        break;
+      }
+      all.push(...rows);
+      if (rows.length < apiPageSize) {
+        break;
+      }
+      if (!shouldScanWide && all.length >= targetCount) {
+        break;
+      }
+    }
+    return all;
+  };
+
   let data: RankingsQueryData;
+  let useMetricOnly = false;
+  let resolvedDifficulty = params.difficulty;
   try {
     data = await requestRankings({
       encounterID: params.encounterID,
       metric: params.metric,
       difficulty: params.difficulty,
-      size: params.pageSize,
+      size: apiPageSize,
       partition: params.partition
     });
   } catch (error) {
@@ -345,23 +609,53 @@ export async function getRankings(
           encounterID: params.encounterID,
           metric: params.metric,
           difficulty: mappedDifficulty,
-          size: params.pageSize
+          size: apiPageSize
         });
+        resolvedDifficulty = mappedDifficulty;
       } catch {
-        data = await client.request<RankingsQueryData>(CHARACTER_RANKINGS_QUERY_METRIC_ONLY, {
+        data = await requestRankingsMetricOnly({
           encounterID: params.encounterID,
-          metric: params.metric
+          metric: params.metric,
+          size: apiPageSize,
+          partition: params.partition
         });
+        useMetricOnly = true;
+        resolvedDifficulty = undefined;
       }
     } else {
-      data = await client.request<RankingsQueryData>(CHARACTER_RANKINGS_QUERY_METRIC_ONLY, {
+      data = await requestRankingsMetricOnly({
         encounterID: params.encounterID,
-        metric: params.metric
+        metric: params.metric,
+        size: apiPageSize,
+        partition: params.partition
       });
+      useMetricOnly = true;
+      resolvedDifficulty = undefined;
     }
   }
 
-  const rankingsRaw = extractRankingsRows(data.worldData.encounter?.characterRankings);
+  let rankingsRaw = extractRankingsRows(data.worldData.encounter?.characterRankings);
+  if (rankingsRaw.length > 0) {
+    rankingsRaw = await collectPagedRows(rankingsRaw, async (page) => {
+      if (useMetricOnly) {
+        return requestRankingsMetricOnly({
+          encounterID: params.encounterID,
+          metric: params.metric,
+          size: apiPageSize,
+          page,
+          partition: params.partition
+        });
+      }
+      return requestRankings({
+        encounterID: params.encounterID,
+        metric: params.metric,
+        difficulty: resolvedDifficulty,
+        size: apiPageSize,
+        page,
+        partition: params.partition
+      });
+    });
+  }
   if (!rankingsRaw || rankingsRaw.length === 0) {
     const payload = data.worldData.encounter?.characterRankings;
     const shape = payload ? Object.keys(payload).slice(0, 20).join(', ') : 'null';
@@ -379,19 +673,44 @@ export async function getRankings(
             encounterID: params.encounterID,
             metric: params.metric,
             difficulty: mappedDifficulty,
-            size: params.pageSize
+            size: apiPageSize
           });
           relaxedRows = extractRankingsRows(mapped.worldData.encounter?.characterRankings);
+          if (relaxedRows.length > 0) {
+            relaxedRows = await collectPagedRows(relaxedRows, (page) =>
+              requestRankings({
+                encounterID: params.encounterID,
+                metric: params.metric,
+                difficulty: mappedDifficulty,
+                size: apiPageSize,
+                page,
+                partition: params.partition
+              })
+            );
+          }
         } catch {
           // noop
         }
       }
       if (relaxedRows.length === 0) {
-        const relaxed = await client.request<RankingsQueryData>(CHARACTER_RANKINGS_QUERY_METRIC_ONLY, {
+        const relaxed = await requestRankingsMetricOnly({
           encounterID: params.encounterID,
-          metric: params.metric
+          metric: params.metric,
+          size: apiPageSize,
+          partition: params.partition
         });
         relaxedRows = extractRankingsRows(relaxed.worldData.encounter?.characterRankings);
+        if (relaxedRows.length > 0) {
+          relaxedRows = await collectPagedRows(relaxedRows, (page) =>
+            requestRankingsMetricOnly({
+              encounterID: params.encounterID,
+              metric: params.metric,
+              size: apiPageSize,
+              page,
+              partition: params.partition
+            })
+          );
+        }
       }
       if (relaxedRows.length > 0) {
         const relaxedRankings = await resolveRankingRows(relaxedRows);
@@ -401,11 +720,28 @@ export async function getRankings(
               `rank-index out of range. index=${params.rankIndex}, available=0..${relaxedRankings.length - 1}`
             );
           }
+          const relaxedSorted = normalizeAndSortRankings(relaxedRankings, params);
+          if (relaxedSorted.length === 0) {
+            throw new Error(
+              `Rankings not found for specified job filter. job=${params.className ?? params.specName ?? '-'}`
+            );
+          }
+          if (params.rankIndex < 0 || params.rankIndex >= relaxedSorted.length) {
+            throw new Error(
+              `rank-index out of range. index=${params.rankIndex}, available=0..${relaxedSorted.length - 1}`
+            );
+          }
+          const limited = relaxedSorted.slice(0, safePageSize);
+          if (params.rankIndex < 0 || params.rankIndex >= limited.length) {
+            throw new Error(
+              `rank-index out of range. index=${params.rankIndex}, available=0..${limited.length - 1}`
+            );
+          }
           return {
             encounterID: params.encounterID,
             metric: params.metric,
             difficulty: params.difficulty,
-            pageSize: params.pageSize,
+            pageSize: safePageSize,
             rankIndex: params.rankIndex,
             filters: {
               region: params.region,
@@ -414,7 +750,7 @@ export async function getRankings(
               specName: params.specName,
               partition: params.partition
             },
-            rankings: relaxedRankings
+            rankings: limited
           };
         }
       }
@@ -424,24 +760,33 @@ export async function getRankings(
     );
   }
 
-  const rankings = await resolveRankingRows(rankingsRaw);
+  const rankings = normalizeAndSortRankings(await resolveRankingRows(rankingsRaw), params);
 
   if (rankings.length === 0) {
     const sample = rankingsRaw[0] && typeof rankingsRaw[0] === 'object' ? Object.keys(rankingsRaw[0]).slice(0, 20) : [];
-    throw new Error(
-      `No usable ranking entries returned (missing reportCode/fightID). sampleKeys=[${sample.join(',')}]`
-    );
+    if (params.className || params.specName) {
+      throw new Error(
+        `No rankings matched job filter. job=${params.className ?? params.specName}. sampleKeys=[${sample.join(',')}]`
+      );
+    }
+    throw new Error(`No usable ranking entries returned (missing reportCode/fightID). sampleKeys=[${sample.join(',')}]`);
   }
 
   if (params.rankIndex < 0 || params.rankIndex >= rankings.length) {
     throw new Error(`rank-index out of range. index=${params.rankIndex}, available=0..${rankings.length - 1}`);
   }
 
+  const limited = rankings.slice(0, safePageSize);
+
+  if (params.rankIndex < 0 || params.rankIndex >= limited.length) {
+    throw new Error(`rank-index out of range. index=${params.rankIndex}, available=0..${limited.length - 1}`);
+  }
+
   return {
     encounterID: params.encounterID,
     metric: params.metric,
     difficulty: params.difficulty,
-    pageSize: params.pageSize,
+    pageSize: safePageSize,
     rankIndex: params.rankIndex,
     filters: {
       region: params.region,
@@ -450,7 +795,7 @@ export async function getRankings(
       specName: params.specName,
       partition: params.partition
     },
-    rankings
+    rankings: limited
   };
 }
 

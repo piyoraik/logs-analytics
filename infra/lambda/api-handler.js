@@ -57,6 +57,26 @@ query CharacterContents($name: String!, $serverSlug: String!) {
 }`;
 }
 
+const FFLOGS_CHARACTER_EXISTS_QUERY_STRING = `
+query CharacterExists($name: String!, $serverSlug: String!, $serverRegion: String!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {
+      name
+    }
+  }
+}`;
+
+function buildFFLogsCharacterExistsQueryEnum(region) {
+  return `
+query CharacterExists($name: String!, $serverSlug: String!) {
+  characterData {
+    character(name: $name, serverSlug: $serverSlug, serverRegion: ${region}) {
+      name
+    }
+  }
+}`;
+}
+
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: {
     removeUndefinedValues: true
@@ -166,6 +186,11 @@ async function searchCharactersViaXivApi(name, serverSlug, limit) {
           server ? `&server=${encodeURIComponent(server)}` : ''
         }&limit=${safeLimit}`
       );
+      urls.push(
+        `${b}/api/search?indexes=Character&string=${encodeURIComponent(name)}${
+          server ? `&filters=${encodeURIComponent(`Server=${server}`)}` : ''
+        }&limit=${safeLimit}`
+      );
     }
   }
 
@@ -175,7 +200,13 @@ async function searchCharactersViaXivApi(name, serverSlug, limit) {
       continue;
     }
     const data = await res.json();
-    const rows = Array.isArray(data?.Results) ? data.Results : Array.isArray(data?.results) ? data.results : [];
+    const rows = Array.isArray(data?.Results)
+      ? data.Results
+      : Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data?.Pagination?.Results)
+          ? data.Pagination.Results
+          : [];
     if (rows.length === 0) {
       continue;
     }
@@ -187,6 +218,50 @@ async function searchCharactersViaXivApi(name, serverSlug, limit) {
         region: ''
       }))
       .filter((x) => x.name && x.serverSlug);
+  }
+  return [];
+}
+
+async function searchCharacterViaFFLogsExact(client, name, serverSlug, region) {
+  const nameVariants = [...new Set([name.trim(), name.trim().toLowerCase()])].filter(Boolean);
+  const serverVariants = [...new Set([serverSlug, normalizeServerSlug(serverSlugToName(serverSlug))])].filter(Boolean);
+  const regionVariants = [...new Set([String(region).toUpperCase(), String(region).toLowerCase()])].filter(Boolean);
+
+  for (const nv of nameVariants) {
+    for (const sv of serverVariants) {
+      for (const rv of regionVariants) {
+        try {
+          const data = await client.request(FFLOGS_CHARACTER_EXISTS_QUERY_STRING, {
+            name: nv,
+            serverSlug: sv,
+            serverRegion: rv
+          });
+          const c = data?.characterData?.character;
+          if (c?.name) {
+            return [{ name: String(c.name), serverName: serverSlugToName(sv), serverSlug: sv, region: '' }];
+          }
+        } catch {
+          // try next variant
+        }
+      }
+    }
+  }
+
+  for (const nv of nameVariants) {
+    for (const sv of serverVariants) {
+      try {
+        const data = await client.request(buildFFLogsCharacterExistsQueryEnum(String(region).toUpperCase()), {
+          name: nv,
+          serverSlug: sv
+        });
+        const c = data?.characterData?.character;
+        if (c?.name) {
+          return [{ name: String(c.name), serverName: serverSlugToName(sv), serverSlug: sv, region: '' }];
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
   return [];
 }
@@ -472,6 +547,7 @@ async function handleRankings(query) {
   const difficulty = Number(query.difficulty);
   const pageSize = Number(query.pageSize ?? '10');
   const rankIndex = Number(query.rankIndex ?? '0');
+  const job = String(query.job ?? '').trim();
   if (!Number.isFinite(encounterId) || !metric || !Number.isFinite(difficulty)) {
     return err(400, 'encounterId, metric, difficulty are required');
   }
@@ -487,13 +563,15 @@ async function handleRankings(query) {
         metric,
         difficulty: d,
         pageSize,
-        rankIndex
+        rankIndex,
+        className: job || undefined
       });
       return ok({
         rankings: r.rankings,
         resolvedEncounterId: encounterId,
         resolvedMetric: metric,
         resolvedDifficulty: d,
+        resolvedJob: job || undefined,
         fallbackApplied: d !== difficulty
       });
     } catch (e) {
@@ -585,8 +663,13 @@ async function handleCharacterSearch(query) {
   }
 
   const rows = await searchCharactersViaXivApi(name, serverSlugFilter, limit * 3);
+  const fallbackRows =
+    rows.length === 0 && serverSlugFilter
+      ? await searchCharacterViaFFLogsExact(makeClient('ja'), name, serverSlugFilter, serverRegion)
+      : [];
   const keyword = name.toLowerCase();
   const characters = rows
+    .concat(fallbackRows)
     .map((x) => ({
       name: x.name,
       serverName: x.serverName || serverSlugToName(x.serverSlug),

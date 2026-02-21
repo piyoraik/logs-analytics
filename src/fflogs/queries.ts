@@ -135,6 +135,7 @@ query CharacterRankings(
   $metric: CharacterRankingMetricType!
   $difficulty: Int
   $size: Int
+  $page: Int
   $partition: Int
 ) {
   worldData {
@@ -143,6 +144,7 @@ query CharacterRankings(
         metric: $metric
         difficulty: $difficulty
         size: $size
+        page: $page
         partition: $partition
       )
     }
@@ -153,11 +155,17 @@ export const CHARACTER_RANKINGS_QUERY_METRIC_ONLY = `
 query CharacterRankingsMetricOnly(
   $encounterID: Int!
   $metric: CharacterRankingMetricType!
+  $size: Int
+  $page: Int
+  $partition: Int
 ) {
   worldData {
     encounter(id: $encounterID) {
       characterRankings(
         metric: $metric
+        size: $size
+        page: $page
+        partition: $partition
       )
     }
   }
