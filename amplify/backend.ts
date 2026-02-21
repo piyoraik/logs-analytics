@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineBackend } from '@aws-amplify/backend';
 import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
@@ -62,7 +63,8 @@ const commonEnv = {
   STAGE_NAME: stageName
 };
 
-const infraRoot = path.join(__dirname, '..', 'infra');
+const thisDir = path.dirname(fileURLToPath(import.meta.url));
+const infraRoot = path.join(thisDir, '..', 'infra');
 
 const apiFunction = new lambda.Function(stack, 'ApiFunction', {
   runtime: lambda.Runtime.NODEJS_20_X,
