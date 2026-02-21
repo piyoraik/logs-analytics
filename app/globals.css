@@ -20,8 +20,104 @@ body {
   font-family: "IBM Plex Sans", "Noto Sans JP", sans-serif;
 }
 
+.appShell {
+  min-height: 100vh;
+}
+
+.siteHeader {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(8px);
+  background: rgba(6, 12, 20, 0.86);
+  border-bottom: 1px solid rgba(65, 90, 119, 0.55);
+}
+
+.siteHeaderInner {
+  width: min(1400px, calc(100% - 32px));
+  margin: 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.siteNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.siteNav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  border: 1px solid rgba(65, 90, 119, 0.6);
+  background: rgba(16, 35, 58, 0.68);
+  border-radius: 999px;
+  padding: 5px 10px;
+}
+
+.siteNav a:hover {
+  color: var(--ink);
+}
+
 .page {
-  padding: 20px;
+  width: min(1400px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 20px 0;
+}
+
+.entryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.entryCard {
+  display: block;
+  border: 1px solid rgba(65, 90, 119, 0.7);
+  border-radius: 12px;
+  padding: 14px;
+  text-decoration: none;
+  background: rgba(7, 15, 26, 0.76);
+  color: var(--ink);
+}
+
+.entryCard:hover {
+  border-color: #88a9cc;
+  background: rgba(20, 37, 58, 0.9);
+}
+
+.entryIcon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 183, 3, 0.18);
+  margin-bottom: 8px;
+}
+
+.entryCard h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.entryCard p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .hero {
@@ -54,16 +150,51 @@ body {
   background: rgba(7, 15, 26, 0.8);
 }
 
-.analyzerTop button {
+.btn {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #1f3b5a;
   color: #f6f7f8;
   padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  line-height: 1;
+  text-decoration: none;
   cursor: pointer;
+  min-height: 34px;
 }
 
-.fightsWrap button {
+.btn:hover {
+  border-color: #6d8aad;
+  background: #284868;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: linear-gradient(180deg, #2d5f89, #1f3b5a);
+}
+
+.btnIcon {
+  font-size: 13px;
+  opacity: 0.95;
+}
+
+.btnLabel {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.timelineSearchControls {
+  margin-bottom: 12px;
+}
+
+.fightsWrap button:not(.btn) {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #1f3b5a;
@@ -72,13 +203,8 @@ body {
   cursor: pointer;
 }
 
-.analyzerTop button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .analyzeBtn {
-  min-width: 92px;
+  min-width: 110px;
 }
 
 .analyzeBtn.loading {
@@ -116,6 +242,7 @@ body {
   margin: 6px 2px;
   color: #9ec1d9;
   font-size: 12px;
+  width: 100%;
 }
 
 .loadingStatus.active {
@@ -153,6 +280,21 @@ body {
   gap: 4px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.controls > .helpText {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed rgba(65, 90, 119, 0.7);
+  border-radius: 8px;
+  background: rgba(12, 27, 45, 0.6);
+}
+
+.sectionTitle {
+  margin: 10px 4px 6px;
+  font-size: 13px;
+  color: #d6e4f0;
+  font-weight: 700;
 }
 
 .controls input,
@@ -401,5 +543,11 @@ tbody td {
   }
   100% {
     content: '';
+  }
+}
+
+@media (max-width: 1100px) {
+  .entryGrid {
+    grid-template-columns: 1fr;
   }
 }

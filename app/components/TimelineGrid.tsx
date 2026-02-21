@@ -23,6 +23,17 @@ function rowHasAnyContent(row: GridRow, visiblePlayers: string[]): boolean {
   return visiblePlayers.some((p) => (row.players[p] ?? []).length > 0);
 }
 
+function formatTimelineTime(totalSec: number): string {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 async function fetchIconChunk(ids: number[], lang: string): Promise<Record<string, string>> {
   if (ids.length === 0) {
     return {};
@@ -238,7 +249,7 @@ export default function TimelineGrid({ model }: Props) {
             <tr>
               <th className="stickyCol">
                 <div className="thInner">
-                  <span>Time(s)</span>
+                    <span>Time</span>
                   <span
                     className="colResizer"
                     onMouseDown={(e) => {
@@ -279,7 +290,7 @@ export default function TimelineGrid({ model }: Props) {
           <tbody>
             {displayedRows.map((row) => (
               <tr key={row.second}>
-                <td className="stickyCol timeCol">{row.second.toFixed(2)}</td>
+                <td className="stickyCol timeCol">{formatTimelineTime(row.second)}</td>
                 <td>
                   <AbilityCell list={row.boss} iconMap={iconMap} />
                 </td>

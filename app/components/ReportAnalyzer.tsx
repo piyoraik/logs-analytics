@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import TimelineGrid from './TimelineGrid';
-import { buildViewModel } from '../../lib/transform';
-import { Fight, ViewModel } from '../../lib/types';
+import { Fight } from '../../lib/types';
 
 type PickStrategy = 'best' | 'lastKill' | 'firstKill' | 'longest';
 type SourceMode = 'report' | 'rankings' | 'character';
@@ -30,15 +28,6 @@ interface EncounterGroup {
   zoneId: number;
   zoneName: string;
   encounters: Array<{ id: number; name: string }>;
-}
-
-interface AnalyzeResponse {
-  fights: Fight[];
-  selectedFight: any;
-  bossTimeline: any[];
-  playersCasts: Record<string, any[]>;
-  playersSummary: any[];
-  unresolvedAbilityCounts?: Record<string, number>;
 }
 
 interface RankingsFetchResponse {
@@ -237,32 +226,6 @@ const JOB_LABEL_BY_VALUE: Record<string, string> = JOB_OPTIONS.reduce<Record<str
   return acc;
 }, {});
 
-async function analyze(body: Record<string, unknown>): Promise<AnalyzeResponse> {
-  const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(body)) {
-    if (v === undefined || v === null) {
-      continue;
-    }
-    q.set(k, String(v));
-  }
-  const res = await fetch(apiUrl(`/report/analyze?${q.toString()}`));
-  if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text) as { error?: string };
-      throw new Error(json.error ?? `Analyze failed (${res.status})`);
-    } catch {
-      throw new Error(text || `Analyze failed (${res.status})`);
-    }
-  }
-  return (await res.json()) as AnalyzeResponse;
-}
-
-function toOptionalNumber(value: string): number | undefined {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
-}
-
 function fmtNum(v?: number): string {
   if (!Number.isFinite(v)) return '-';
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
@@ -399,11 +362,37 @@ function sortRankings(list: RankingEntry[]): RankingEntry[] {
   });
 }
 
-export default function ReportAnalyzer() {
-  const initializedRef = useRef(false);
-  const autoAnalyzeTriedRef = useRef(false);
+function goToTimeline(params: Record<string, string | number | boolean | undefined>) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === '') {
+      continue;
+    }
+    q.set(k, String(v));
+  }
+  window.location.href = `/timeline?${q.toString()}`;
+}
 
-  const [mode, setMode] = useState<SourceMode>('report');
+function goToSearch(mode: SourceMode, params: Record<string, string | number | boolean | undefined>) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === '') {
+      continue;
+    }
+    q.set(k, String(v));
+  }
+  window.location.href = `/search/${mode}?${q.toString()}`;
+}
+
+interface Props {
+  initialMode?: SourceMode;
+  lockMode?: boolean;
+}
+
+export default function ReportAnalyzer({ initialMode = 'report', lockMode = false }: Props) {
+  const initializedRef = useRef(false);
+
+  const [mode, setMode] = useState<SourceMode>(initialMode);
 
   const [reportCode, setReportCode] = useState('');
   const [strategy, setStrategy] = useState<PickStrategy>('best');
@@ -429,31 +418,36 @@ export default function ReportAnalyzer() {
   const [characterReports, setCharacterReports] = useState<Array<{ code: string; title?: string; startTime?: number }>>([]);
 
   const [loadingFights, setLoadingFights] = useState(false);
-  const [loadingAnalyze, setLoadingAnalyze] = useState(false);
-  const [analyzingActionKey, setAnalyzingActionKey] = useState('');
-  const [status, setStatus] = useState('Idle');
+  const [status, setStatus] = useState('待機中');
   const [error, setError] = useState('');
-  const [unresolvedHint, setUnresolvedHint] = useState('');
-  const [model, setModel] = useState<ViewModel | null>(null);
 
   const selectedZone = useMemo(
     () => encounterGroups.find((g) => String(g.zoneId) === selectedZoneId),
     [encounterGroups, selectedZoneId]
   );
   const sortedRankings = useMemo(() => sortRankings(rankings), [rankings]);
+  const modeGuide = useMemo(() => {
+    if (mode === 'report') {
+      return '手順: Report Code を入力 -> Fight一覧を取得 -> 対象行の「タイムライン表示」。';
+    }
+    if (mode === 'rankings') {
+      return '手順: 条件を指定 -> ランキングを取得 -> 対象行の「タイムライン表示」。';
+    }
+    return '手順: キャラクターを検索 -> 履歴取得 -> 取得結果をランキング条件へ反映。';
+  }, [mode]);
 
   const loadReportFights = async () => {
     setError('');
-    setStatus('Loading fights list from report...');
+    setStatus('レポートのFight一覧を取得中...');
     setLoadingFights(true);
     try {
       const list = await fetchFights(reportCode.trim());
       setFights(list);
       setSelectedFightId('');
-      setStatus(`Fights loaded: ${list.length}`);
+      setStatus(`Fight一覧を取得しました: ${list.length}件`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to load fights');
+      setStatus('Fight一覧の取得に失敗しました');
     } finally {
       setLoadingFights(false);
     }
@@ -461,12 +455,12 @@ export default function ReportAnalyzer() {
 
   const loadRankings = async () => {
     setError('');
-    setStatus('Loading rankings...');
+    setStatus('ランキングを取得中...');
     setLoadingFights(true);
     const startedAt = Date.now();
     const ticker = setInterval(() => {
       const sec = Math.floor((Date.now() - startedAt) / 1000);
-      setStatus(`Loading rankings... ${sec}s`);
+      setStatus(`ランキング取得中... ${sec}s`);
     }, 1000);
     try {
       const encounterIdNum = Number(selectedEncounterIdInGroup);
@@ -504,14 +498,14 @@ export default function ReportAnalyzer() {
           setDifficulty(String(list.resolvedDifficulty));
         }
         setStatus(
-          `Rankings loaded with fallback: ${list.rankings.length} (encounter=${list.resolvedEncounterId}, metric=${list.resolvedMetric}, difficulty=${list.resolvedDifficulty})`
+          `ランキング取得(フォールバック適用): ${list.rankings.length}件 (encounter=${list.resolvedEncounterId}, metric=${list.resolvedMetric}, difficulty=${list.resolvedDifficulty})`
         );
       } else {
-        setStatus(`Rankings loaded: ${list.rankings.length}`);
+        setStatus(`ランキングを取得しました: ${list.rankings.length}件`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to load rankings');
+      setStatus('ランキング取得に失敗しました');
     } finally {
       clearInterval(ticker);
       setLoadingFights(false);
@@ -520,7 +514,7 @@ export default function ReportAnalyzer() {
 
   const loadEncounterGroups = async () => {
     setError('');
-    setStatus('Loading encounter groups...');
+    setStatus('コンテンツグループを取得中...');
     setLoadingFights(true);
     try {
       const groups = await fetchEncounterGroups();
@@ -538,10 +532,10 @@ export default function ReportAnalyzer() {
           }
         }
       }
-      setStatus(`Groups loaded: ${groups.length}`);
+      setStatus(`コンテンツグループを取得しました: ${groups.length}件`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to load groups');
+      setStatus('コンテンツグループ取得に失敗しました');
     } finally {
       setLoadingFights(false);
     }
@@ -549,7 +543,7 @@ export default function ReportAnalyzer() {
 
   const loadCharacterContentsBy = async (params: { name: string; server: string; region: string }) => {
     setError('');
-    setStatus('Loading character contents...');
+    setStatus('キャラクターのコンテンツ履歴を取得中...');
     setLoadingFights(true);
     try {
       const data = await fetchCharacterContents({
@@ -559,10 +553,10 @@ export default function ReportAnalyzer() {
       });
       setCharacterContents(data.contents);
       setCharacterReports(data.reports ?? []);
-      setStatus(`Character contents loaded: ${data.contents.length}, reports: ${(data.reports ?? []).length}`);
+      setStatus(`コンテンツ履歴を取得しました: ${data.contents.length}件, レポート: ${(data.reports ?? []).length}件`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to load character contents');
+      setStatus('コンテンツ履歴の取得に失敗しました');
     } finally {
       setLoadingFights(false);
     }
@@ -578,7 +572,7 @@ export default function ReportAnalyzer() {
 
   const searchCharacterCandidates = async () => {
     setError('');
-    setStatus('Searching characters...');
+    setStatus('キャラクター候補を検索中...');
     setLoadingFights(true);
     try {
       const list = await fetchCharacterCandidates({
@@ -588,43 +582,12 @@ export default function ReportAnalyzer() {
         limit: 20
       });
       setCharacterCandidates(list);
-      setStatus(`Character candidates: ${list.length}`);
+      setStatus(`キャラクター候補: ${list.length}件`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setStatus('Failed to search character');
+      setStatus('キャラクター候補の検索に失敗しました');
     } finally {
       setLoadingFights(false);
-    }
-  };
-
-  const runAnalyzeWithPayload = async (payload: Record<string, unknown>) => {
-    setError('');
-    setUnresolvedHint('');
-    setStatus('Analyzing selected fight...');
-    setLoadingAnalyze(true);
-    try {
-      const result = await analyze(payload);
-      const vm = buildViewModel(result.selectedFight, result.bossTimeline, result.playersCasts);
-      setModel(vm);
-      const unresolved = result.unresolvedAbilityCounts ?? {};
-      const unresolvedTotal = Object.keys(unresolved).length;
-      if (unresolvedTotal > 0) {
-        const top = Object.entries(unresolved)
-          .slice(0, 5)
-          .map(([id, c]) => `${id}(${c})`)
-          .join(', ');
-        setUnresolvedHint(
-          `未解決 ability: ${unresolvedTotal}件 (top: ${top})。必要なら out/ability_overrides.json で上書きしてください。`
-        );
-      }
-      setStatus(
-        `Analyze completed: fight=${result.selectedFight.fightID}, players=${Object.keys(result.playersCasts).length}, unresolved=${unresolvedTotal}`
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setStatus('Analyze failed');
-    } finally {
-      setLoadingAnalyze(false);
     }
   };
 
@@ -636,7 +599,7 @@ export default function ReportAnalyzer() {
 
     const params = new URLSearchParams(window.location.search);
     const qpMode = params.get('mode');
-    if (qpMode === 'report' || qpMode === 'rankings' || qpMode === 'character') {
+    if (!lockMode && (qpMode === 'report' || qpMode === 'rankings' || qpMode === 'character')) {
       setMode(qpMode);
     }
 
@@ -701,66 +664,16 @@ export default function ReportAnalyzer() {
     if (qpCharacterRegion) {
       setCharacterRegion(qpCharacterRegion.toUpperCase());
     }
-  }, []);
-
-  useEffect(() => {
-    if (!initializedRef.current || autoAnalyzeTriedRef.current) {
-      return;
-    }
-    const params = new URLSearchParams(window.location.search);
-    const qpMode = params.get('mode') ?? 'report';
-
-    if (qpMode === 'report') {
-      const qpReport = params.get('report')?.trim();
-      if (!qpReport) {
-        return;
-      }
-      autoAnalyzeTriedRef.current = true;
-      void runAnalyzeWithPayload({
-        reportCode: qpReport,
-        strategy: params.get('strategy') ?? 'best',
-        onlyKill: params.get('onlyKill') !== 'false',
-        difficulty: toOptionalNumber(params.get('difficulty') ?? ''),
-        fightId: toOptionalNumber(params.get('fightId') ?? ''),
-        translate: true,
-        locale: 'ja',
-        xivapiFallback: true,
-        xivapiLang: 'ja'
-      });
-      return;
-    }
-
-    if (qpMode === 'rankings') {
-      const rankingKey = params.get('rankingKey');
-      if (!rankingKey) {
-        return;
-      }
-      const [rc, fid] = rankingKey.split(':');
-      const fightId = toOptionalNumber(fid ?? '');
-      if (!rc || !fightId) {
-        return;
-      }
-      autoAnalyzeTriedRef.current = true;
-      void runAnalyzeWithPayload({
-        reportCode: rc,
-        strategy: 'best',
-        onlyKill: params.get('onlyKill') !== 'false',
-        difficulty: toOptionalNumber(params.get('difficulty') ?? ''),
-        fightId,
-        translate: true,
-        locale: 'ja',
-        xivapiFallback: true,
-        xivapiLang: 'ja'
-      });
-    }
-  }, []);
+  }, [lockMode]);
 
   useEffect(() => {
     if (!initializedRef.current) {
       return;
     }
     const q = new URLSearchParams();
-    q.set('mode', mode);
+    if (!lockMode) {
+      q.set('mode', mode);
+    }
     q.set('onlyKill', String(onlyKill));
     if (difficulty) {
       q.set('difficulty', difficulty);
@@ -810,6 +723,7 @@ export default function ReportAnalyzer() {
       window.history.replaceState(null, '', next);
     }
   }, [
+    lockMode,
     mode,
     reportCode,
     strategy,
@@ -830,7 +744,7 @@ export default function ReportAnalyzer() {
     if (mode !== 'rankings') {
       return;
     }
-    if (encounterGroups.length > 0 || loadingFights || loadingAnalyze) {
+    if (encounterGroups.length > 0 || loadingFights) {
       return;
     }
     void loadEncounterGroups();
@@ -849,14 +763,16 @@ export default function ReportAnalyzer() {
   return (
     <>
       <section className="controls analyzerTop">
-        <label>
-          Mode
-          <select value={mode} onChange={(e) => setMode(e.target.value as SourceMode)}>
-            <option value="report">Report</option>
-            <option value="rankings">Rankings</option>
-            <option value="character">Character</option>
-          </select>
-        </label>
+        {!lockMode ? (
+          <label>
+            取得方法
+            <select value={mode} onChange={(e) => setMode(e.target.value as SourceMode)}>
+              <option value="report">レポートコード</option>
+              <option value="rankings">ランキング</option>
+              <option value="character">キャラクター</option>
+            </select>
+          </label>
+        ) : null}
 
         {mode === 'report' ? (
           <>
@@ -864,11 +780,12 @@ export default function ReportAnalyzer() {
               Report Code
               <input value={reportCode} onChange={(e) => setReportCode(e.target.value)} placeholder="HpRq1BmMvwh7PVGa" />
             </label>
-            <button onClick={loadReportFights} disabled={!reportCode || loadingFights || loadingAnalyze}>
-              {loadingFights ? 'Fetching fights...' : 'Fetch Fight List'}
+            <button className="btn" onClick={loadReportFights} disabled={!reportCode || loadingFights} title="Fight一覧を取得">
+              <span className="btnIcon" aria-hidden="true">{loadingFights ? '◌' : '☰'}</span>
+              <span className="btnLabel">{loadingFights ? 'Loading' : 'Fights'}</span>
             </button>
             <label>
-              Pick
+              自動選択ルール
               <select value={strategy} onChange={(e) => setStrategy(e.target.value as PickStrategy)}>
                 <option value="best">best</option>
                 <option value="lastKill">lastKill</option>
@@ -890,7 +807,7 @@ export default function ReportAnalyzer() {
                   setSelectedEncounterIdInGroup(nextZone?.encounters[0] ? String(nextZone.encounters[0].id) : '');
                 }}
               >
-                <option value="">Select zone</option>
+                <option value="">選択してください</option>
                 {encounterGroups.map((g) => (
                   <option key={g.zoneId} value={String(g.zoneId)}>
                     {g.zoneName}
@@ -906,7 +823,7 @@ export default function ReportAnalyzer() {
                   setSelectedEncounterIdInGroup(e.target.value);
                 }}
               >
-                <option value="">Select encounter</option>
+                <option value="">選択してください</option>
                 {(selectedZone?.encounters ?? []).map((enc) => (
                   <option key={enc.id} value={String(enc.id)}>
                     {enc.name} ({enc.id})
@@ -934,14 +851,17 @@ export default function ReportAnalyzer() {
               </select>
             </label>
             <label>
-              Page Size
+              表示件数
               <input value={pageSize} onChange={(e) => setPageSize(e.target.value)} placeholder="10" />
             </label>
             <button
+              className="btn"
               onClick={loadRankings}
-              disabled={!selectedEncounterIdInGroup || !difficulty || !metric || loadingFights || loadingAnalyze}
+              disabled={!selectedEncounterIdInGroup || !difficulty || !metric || loadingFights}
+              title="ランキング結果を取得"
             >
-              {loadingFights ? 'Fetching rankings...' : 'Fetch Rankings'}
+              <span className="btnIcon" aria-hidden="true">{loadingFights ? '◌' : '🏆'}</span>
+              <span className="btnLabel">{loadingFights ? 'Loading' : 'Rankings'}</span>
             </button>
           </>
         ) : (
@@ -971,7 +891,7 @@ export default function ReportAnalyzer() {
             <label>
               Server
               <select value={characterServer} onChange={(e) => setCharacterServer(e.target.value)}>
-                <option value="">Select server</option>
+                <option value="">選択してください</option>
                 {(SERVER_OPTIONS[characterRegion] ?? []).map((s) => (
                   <option key={s} value={s}>
                     {s}
@@ -980,16 +900,22 @@ export default function ReportAnalyzer() {
               </select>
             </label>
             <button
+              className="btn"
               onClick={searchCharacterCandidates}
-              disabled={!characterName.trim() || loadingFights || loadingAnalyze}
+              disabled={!characterName.trim() || loadingFights}
+              title="キャラクター候補を検索"
             >
-              {loadingFights ? 'Searching characters...' : 'Search Character'}
+              <span className="btnIcon" aria-hidden="true">{loadingFights ? '◌' : '⌕'}</span>
+              <span className="btnLabel">{loadingFights ? 'Loading' : 'Candidates'}</span>
             </button>
             <button
+              className="btn"
               onClick={loadCharacterContents}
-              disabled={!characterName.trim() || !characterServer.trim() || loadingFights || loadingAnalyze}
+              disabled={!characterName.trim() || !characterServer.trim() || loadingFights}
+              title="コンテンツ履歴を取得"
             >
-              {loadingFights ? 'Fetching contents...' : 'Fetch Contents'}
+              <span className="btnIcon" aria-hidden="true">{loadingFights ? '◌' : '📚'}</span>
+              <span className="btnLabel">{loadingFights ? 'Loading' : 'Contents'}</span>
             </button>
           </>
         )}
@@ -1000,26 +926,25 @@ export default function ReportAnalyzer() {
         </label>
         <label className="check">
           <input type="checkbox" checked={onlyKill} onChange={(e) => setOnlyKill(e.target.checked)} />
-          onlyKill
+          Killのみ対象
         </label>
       </section>
 
-      <p className="helpText">
-        Rankings/Report は各行の `Analyze` で即実行できます。Character は `Use & Fetch` で即コンテンツ取得できます。
-      </p>
+      <p className="helpText">{modeGuide}</p>
 
-      <p className={`loadingStatus ${loadingFights || loadingAnalyze ? 'active' : ''}`} role="status" aria-live="polite">
-        {loadingFights || loadingAnalyze ? <span className="spinner" aria-hidden="true" /> : null}
-        <span>{loadingFights || loadingAnalyze ? 'Processing' : 'Ready'}</span>
-        {loadingFights || loadingAnalyze ? <span className="loadingDots" aria-hidden="true" /> : null}
+      <p className={`loadingStatus ${loadingFights ? 'active' : ''}`} role="status" aria-live="polite">
+        {loadingFights ? <span className="spinner" aria-hidden="true" /> : null}
+        <span>{loadingFights ? '処理中' : '準備完了'}</span>
+        {loadingFights ? <span className="loadingDots" aria-hidden="true" /> : null}
         <span>{status}</span>
       </p>
 
       {error ? <p className="errorMsg">{error}</p> : null}
-      {unresolvedHint ? <p className="warnMsg">{unresolvedHint}</p> : null}
 
       {mode === 'report' && fights.length > 0 ? (
-        <section className="tableWrap fightsWrap">
+        <section>
+          <h3 className="sectionTitle">取得したFight一覧</h3>
+          <div className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
@@ -1028,7 +953,7 @@ export default function ReportAnalyzer() {
                 <th>Kill</th>
                 <th>Difficulty</th>
                 <th>Duration(s)</th>
-                <th>Action</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1041,49 +966,37 @@ export default function ReportAnalyzer() {
                   <td>{((f.endTime - f.startTime) / 1000).toFixed(1)}</td>
                   <td>
                     <button
-                      className={`analyzeBtn ${loadingAnalyze && analyzingActionKey === `report:${f.id}` ? 'loading' : ''}`}
+                      className="btn btnPrimary analyzeBtn"
                       type="button"
-                      disabled={loadingAnalyze || loadingFights}
-                      onClick={async () => {
-                        const actionKey = `report:${f.id}`;
-                        setAnalyzingActionKey(actionKey);
+                      disabled={loadingFights}
+                      title="このFightのタイムラインを表示"
+                      onClick={() => {
                         setSelectedFightId(String(f.id));
-                        try {
-                          await runAnalyzeWithPayload({
-                            reportCode: reportCode.trim(),
-                            strategy,
-                            onlyKill,
-                            difficulty: difficulty ? Number(difficulty) : undefined,
-                            fightId: f.id,
-                            translate: true,
-                            locale: 'ja',
-                            xivapiFallback: true,
-                            xivapiLang: 'ja'
-                          });
-                        } finally {
-                          setAnalyzingActionKey('');
-                        }
+                        goToTimeline({
+                          reportCode: reportCode.trim(),
+                          strategy,
+                          onlyKill,
+                          difficulty: difficulty ? Number(difficulty) : undefined,
+                          fightId: f.id
+                        });
                       }}
                     >
-                      {loadingAnalyze && analyzingActionKey === `report:${f.id}` ? (
-                        <span className="btnLoadingContent">
-                          <span className="spinner" aria-hidden="true" />
-                          Analyzing...
-                        </span>
-                      ) : (
-                        'Analyze'
-                      )}
+                      <span className="btnIcon" aria-hidden="true">↗</span>
+                      <span className="btnLabel">Timeline</span>
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </section>
       ) : null}
 
       {mode === 'rankings' && sortedRankings.length > 0 ? (
-        <section className="tableWrap fightsWrap">
+        <section>
+          <h3 className="sectionTitle">ランキング結果</h3>
+          <div className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
@@ -1095,7 +1008,7 @@ export default function ReportAnalyzer() {
                 <th>Kill</th>
                 <th>Fastest</th>
                 <th>Med</th>
-                <th>Action</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1114,38 +1027,23 @@ export default function ReportAnalyzer() {
                     <td>{fmtNum(r.medianRdps)}</td>
                     <td>
                       <button
-                        className={`analyzeBtn ${loadingAnalyze && analyzingActionKey === `ranking:${key}` ? 'loading' : ''}`}
+                        className="btn btnPrimary analyzeBtn"
                         type="button"
-                        disabled={loadingAnalyze || loadingFights}
-                        onClick={async () => {
-                          const actionKey = `ranking:${key}`;
-                          setAnalyzingActionKey(actionKey);
+                        disabled={loadingFights}
+                        title="このランキング行のタイムラインを表示"
+                        onClick={() => {
                           setSelectedRankingKey(key);
-                          try {
-                            await runAnalyzeWithPayload({
-                              reportCode: r.reportCode,
-                              fightId: r.fightID,
-                              strategy: 'best',
-                              onlyKill,
-                              difficulty: Number(difficulty),
-                              translate: true,
-                              locale: 'ja',
-                              xivapiFallback: true,
-                              xivapiLang: 'ja'
-                            });
-                          } finally {
-                            setAnalyzingActionKey('');
-                          }
+                          goToTimeline({
+                            reportCode: r.reportCode,
+                            fightId: r.fightID,
+                            strategy: 'best',
+                            onlyKill,
+                            difficulty: Number(difficulty)
+                          });
                         }}
                       >
-                        {loadingAnalyze && analyzingActionKey === `ranking:${key}` ? (
-                          <span className="btnLoadingContent">
-                            <span className="spinner" aria-hidden="true" />
-                            Analyzing...
-                          </span>
-                        ) : (
-                          'Analyze'
-                        )}
+                        <span className="btnIcon" aria-hidden="true">↗</span>
+                        <span className="btnLabel">Timeline</span>
                       </button>
                     </td>
                   </tr>
@@ -1153,11 +1051,14 @@ export default function ReportAnalyzer() {
               })}
             </tbody>
           </table>
+          </div>
         </section>
       ) : null}
 
       {mode === 'character' && characterContents.length > 0 ? (
-        <section className="tableWrap fightsWrap">
+        <section>
+          <h3 className="sectionTitle">キャラクターのコンテンツ履歴</h3>
+          <div className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
@@ -1165,7 +1066,7 @@ export default function ReportAnalyzer() {
                 <th>Encounter</th>
                 <th>Best %</th>
                 <th>Total Kills</th>
-                <th>Use</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1179,30 +1080,47 @@ export default function ReportAnalyzer() {
                   <td>{Number.isFinite(row.totalKills) ? row.totalKills : '-'}</td>
                   <td>
                     <button
+                      className="btn"
                       type="button"
+                      title="このEncounterをランキング条件に反映"
                       onClick={() => {
+                        if (lockMode) {
+                          goToSearch('rankings', {
+                            encounterId: row.encounterId,
+                            difficulty,
+                            metric,
+                            pageSize,
+                            job: jobFilter,
+                            onlyKill
+                          });
+                          return;
+                        }
                         setSelectedEncounterIdInGroup(String(row.encounterId));
                         setMode('rankings');
                       }}
                     >
-                      Use in Rankings
+                      <span className="btnIcon" aria-hidden="true">⇄</span>
+                      <span className="btnLabel">To Rankings</span>
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </section>
       ) : null}
 
       {mode === 'character' && characterContents.length === 0 && characterReports.length > 0 ? (
-        <section className="tableWrap fightsWrap">
+        <section>
+          <h3 className="sectionTitle">最近のレポート</h3>
+          <div className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
                 <th>Recent Report</th>
                 <th>Title</th>
-                <th>Use</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1212,31 +1130,46 @@ export default function ReportAnalyzer() {
                   <td>{r.title ?? '-'}</td>
                   <td>
                     <button
+                      className="btn"
                       type="button"
+                      title="このレポートをReportモードに反映"
                       onClick={() => {
+                        if (lockMode) {
+                          goToSearch('report', {
+                            report: r.code,
+                            strategy,
+                            difficulty,
+                            onlyKill
+                          });
+                          return;
+                        }
                         setMode('report');
                         setReportCode(r.code);
                       }}
                     >
-                      Open in Report
+                      <span className="btnIcon" aria-hidden="true">⇄</span>
+                      <span className="btnLabel">To Report</span>
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </section>
       ) : null}
 
       {mode === 'character' && characterCandidates.length > 0 ? (
-        <section className="tableWrap fightsWrap">
+        <section>
+          <h3 className="sectionTitle">キャラクター候補</h3>
+          <div className="tableWrap fightsWrap">
           <table>
             <thead>
               <tr>
                 <th>Name</th>
                 <th>Server</th>
                 <th>Region</th>
-                <th>Use</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1247,7 +1180,9 @@ export default function ReportAnalyzer() {
                   <td>{row.region}</td>
                   <td>
                     <button
+                      className="btn"
                       type="button"
+                      title="このキャラクターでコンテンツ履歴を取得"
                       onClick={async () => {
                         setCharacterName(row.name);
                         setCharacterRegion(row.region || characterRegion);
@@ -1259,17 +1194,17 @@ export default function ReportAnalyzer() {
                         });
                       }}
                     >
-                      Use & Fetch
+                      <span className="btnIcon" aria-hidden="true">✓</span>
+                      <span className="btnLabel">Apply</span>
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </section>
       ) : null}
-
-      {model ? <TimelineGrid model={model} /> : null}
     </>
   );
 }
