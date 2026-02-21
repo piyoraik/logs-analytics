@@ -7,11 +7,6 @@ function cleanBase(value: string | undefined): string {
 }
 
 async function getApiBaseUrl(): Promise<string> {
-  const explicit = cleanBase(process.env.NEXT_PUBLIC_API_BASE_URL) || cleanBase(process.env.API_BASE_URL);
-  if (explicit) {
-    return explicit;
-  }
-
   try {
     const file = path.join(process.cwd(), 'amplify_outputs.json');
     const text = await readFile(file, 'utf-8');
@@ -27,7 +22,12 @@ async function getApiBaseUrl(): Promise<string> {
       return nested;
     }
   } catch {
-    // fall through to throw below
+    // fall back to env vars below
+  }
+
+  const explicit = cleanBase(process.env.NEXT_PUBLIC_API_BASE_URL) || cleanBase(process.env.API_BASE_URL);
+  if (explicit) {
+    return explicit;
   }
 
   throw new Error('API base URL is not configured. Set NEXT_PUBLIC_API_BASE_URL or generate amplify_outputs.json.');

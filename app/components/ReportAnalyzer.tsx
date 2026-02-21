@@ -62,9 +62,7 @@ interface CharacterCandidate {
 }
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/+$/, '');
-const USE_NEXT_API =
-  process.env.NEXT_PUBLIC_USE_NEXT_API === 'true' ||
-  (process.env.NEXT_PUBLIC_USE_NEXT_API !== 'false' && !API_BASE_URL);
+const USE_NEXT_API = process.env.NEXT_PUBLIC_USE_NEXT_API !== 'false';
 
 function apiUrl(path: string): string {
   if (USE_NEXT_API) {
