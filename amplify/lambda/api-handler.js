@@ -867,25 +867,34 @@ async function handleAbilityIcons(query) {
     missing.push(...rawIds);
   }
 
-  for (const id of missing.slice(0, 200)) {
-    const action = await fetchXivApiAction(id, lang);
-    if (action.iconUrl) {
-      icons[String(id)] = action.iconUrl;
-    }
-    if (table && (action.name || action.iconUrl)) {
-      await ddb.send(
-        new PutCommand({
-          TableName: table,
-          Item: {
-            abilityId: id,
-            nameJa: lang === 'ja' ? action.name : undefined,
-            nameEn: lang === 'en' ? action.name : undefined,
-            iconUrl: action.iconUrl,
-            updatedAt: Date.now()
-          }
-        })
-      );
-    }
+  // Cache-first: return quickly with DynamoDB hits and resolve misses in bounded parallel.
+  const resolveTargets = missing.slice(0, 60);
+  const concurrency = 12;
+  for (let i = 0; i < resolveTargets.length; i += concurrency) {
+    const chunk = resolveTargets.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(async (id) => {
+        const action = await fetchXivApiAction(id, lang);
+        if (action.iconUrl) {
+          icons[String(id)] = action.iconUrl;
+        }
+        if (table && (action.name || action.iconUrl)) {
+          await ddb.send(
+            new PutCommand({
+              TableName: table,
+              Item: {
+                abilityId: id,
+                nameJa: lang === 'ja' ? action.name : undefined,
+                nameEn: lang === 'en' ? action.name : undefined,
+                iconUrl: action.iconUrl,
+                updatedAt: Date.now()
+              }
+            })
+          );
+        }
+      })
+    );
+    void results;
   }
 
   return ok({ icons });
