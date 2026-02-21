@@ -294,7 +294,24 @@ exports.handler = async (event, context) => {
       };
     }
 
-    const rows = await fetchActionPage(baseUrl, lang, after, pageLimit);
+    let rows;
+    try {
+      rows = await fetchActionPage(baseUrl, lang, after, pageLimit);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('XIVAPI sheet request failed: 404')) {
+        return {
+          mode: 'full',
+          updated,
+          skipped,
+          nextAfter: after,
+          partial: true,
+          reason: 'sheet_not_available',
+          detail: msg
+        };
+      }
+      throw e;
+    }
     if (rows.length === 0) {
       return {
         mode: 'full',
