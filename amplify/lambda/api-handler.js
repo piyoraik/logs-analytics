@@ -118,6 +118,31 @@ function err(statusCode, message) {
   };
 }
 
+function logInfo(event, payload) {
+  // eslint-disable-next-line no-console
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      event,
+      ts: new Date().toISOString(),
+      ...payload
+    })
+  );
+}
+
+function logError(event, payload, error) {
+  // eslint-disable-next-line no-console
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      event,
+      ts: new Date().toISOString(),
+      ...payload,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error)
+    })
+  );
+}
+
 function normalizePath(rawPath, stageName) {
   let path = rawPath || '/';
   if (!path.startsWith('/')) {
@@ -553,6 +578,14 @@ async function handleRankings(query) {
   if (!Number.isFinite(encounterId) || !metric) {
     return err(400, 'encounterId and metric are required');
   }
+  logInfo('rankings.start', {
+    encounterId,
+    metric,
+    difficulty: difficulty ?? null,
+    pageSize,
+    rankIndex,
+    job: job || null
+  });
   const client = makeClient('ja');
   const mapped = difficulty === 101 ? 5 : difficulty === 100 ? 4 : difficulty === 102 ? 6 : difficulty;
   const candidates = [difficulty, mapped, 5, 4, 3, 6, 101, 100, 102, undefined].filter(
@@ -600,6 +633,18 @@ async function handleRankings(query) {
       }
     }
   }
+  logError(
+    'rankings.failed',
+    {
+      encounterId,
+      metric,
+      difficulty: difficulty ?? null,
+      pageSize,
+      rankIndex,
+      attemptedCount: attempted.length
+    },
+    last
+  );
   const detail = last instanceof Error ? last.message : String(last ?? 'Rankings not found');
   throw new Error(`${detail} attempted=[${attempted.join(' | ')}]`);
 }
@@ -921,42 +966,74 @@ async function handleAnalyze(input, fromQuery = false) {
 }
 
 exports.handler = async (event) => {
+  const startedAt = Date.now();
+  const method = event?.requestContext?.http?.method ?? 'GET';
+  const stage = event?.requestContext?.stage ?? process.env.STAGE_NAME;
+  const path = normalizePath(event?.rawPath ?? '/', stage);
+  const requestId =
+    event?.requestContext?.requestId ??
+    event?.headers?.['x-amzn-trace-id'] ??
+    `local-${Date.now()}`;
+  const queryKeys = Object.keys(event?.queryStringParameters ?? {});
+  logInfo('request.start', { requestId, method, path, stage, queryKeys });
+
   try {
-    const method = event?.requestContext?.http?.method ?? 'GET';
-    const stage = event?.requestContext?.stage ?? process.env.STAGE_NAME;
-    const path = normalizePath(event?.rawPath ?? '/', stage);
+    let response;
     if (method === 'GET' && path === '/health') {
-      return ok({ ok: true, ts: Date.now() });
+      response = ok({ ok: true, ts: Date.now() });
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/report/fights') {
-      return await handleReportFights(event.queryStringParameters ?? {});
+      response = await handleReportFights(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/rankings/search') {
-      return await handleRankings(event.queryStringParameters ?? {});
+      response = await handleRankings(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/encounters/search') {
-      return await handleEncounterSearch(event.queryStringParameters ?? {});
+      response = await handleEncounterSearch(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/encounters/groups') {
-      return await handleEncounterGroups();
+      response = await handleEncounterGroups();
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/character/contents') {
-      return await handleCharacterContents(event.queryStringParameters ?? {});
+      response = await handleCharacterContents(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/character/search') {
-      return await handleCharacterSearch(event.queryStringParameters ?? {});
+      response = await handleCharacterSearch(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/ability-icons') {
-      return await handleAbilityIcons(event.queryStringParameters ?? {});
+      response = await handleAbilityIcons(event.queryStringParameters ?? {});
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'GET' && path === '/report/analyze') {
-      return await handleAnalyze(event.queryStringParameters ?? {}, true);
+      response = await handleAnalyze(event.queryStringParameters ?? {}, true);
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
     if (method === 'POST' && path === '/report/analyze') {
-      return await handleAnalyze(event.body, false);
+      response = await handleAnalyze(event.body, false);
+      logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+      return response;
     }
-    return err(404, `Not found: ${method} ${path}`);
+    response = err(404, `Not found: ${method} ${path}`);
+    logInfo('request.done', { requestId, method, path, statusCode: response.statusCode, durationMs: Date.now() - startedAt });
+    return response;
   } catch (e) {
+    logError('request.error', { requestId, method, path, durationMs: Date.now() - startedAt }, e);
     return err(500, e instanceof Error ? e.message : String(e));
   }
 };

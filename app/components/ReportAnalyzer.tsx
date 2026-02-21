@@ -77,12 +77,25 @@ function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  const text = await res.text();
+  if (!text) {
+    return fallback;
+  }
+  try {
+    const json = JSON.parse(text) as { error?: string; message?: string };
+    return json.error ?? json.message ?? text;
+  } catch {
+    return text;
+  }
+}
+
 async function fetchFights(reportCode: string): Promise<Fight[]> {
   const res = await fetch(
     apiUrl(`/report/fights?reportCode=${encodeURIComponent(reportCode)}&translate=true&locale=ja`)
   );
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to fetch fights');
+    throw new Error(await readErrorMessage(res, `Failed to fetch fights (${res.status})`));
   }
   const json = (await res.json()) as { fights: Fight[] };
   return json.fights;
@@ -122,7 +135,7 @@ async function fetchRankings(params: {
   }
 
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to fetch rankings');
+    throw new Error(await readErrorMessage(res, `Failed to fetch rankings (${res.status})`));
   }
   return (await res.json()) as RankingsFetchResponse;
 }
@@ -130,7 +143,7 @@ async function fetchRankings(params: {
 async function fetchEncounterGroups(): Promise<EncounterGroup[]> {
   const res = await fetch(apiUrl('/encounters/groups'));
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to load encounter groups');
+    throw new Error(await readErrorMessage(res, `Failed to load encounter groups (${res.status})`));
   }
   const json = (await res.json()) as { groups: EncounterGroup[] };
   return json.groups;
@@ -148,7 +161,7 @@ async function fetchCharacterContents(params: {
   });
   const res = await fetch(apiUrl(`/character/contents?${q.toString()}`));
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to load character contents');
+    throw new Error(await readErrorMessage(res, `Failed to load character contents (${res.status})`));
   }
   return (await res.json()) as CharacterContentsResponse;
 }
@@ -169,7 +182,7 @@ async function fetchCharacterCandidates(params: {
   }
   const res = await fetch(apiUrl(`/character/search?${q.toString()}`));
   if (!res.ok) {
-    throw new Error((await res.json()).error ?? 'Failed to search character');
+    throw new Error(await readErrorMessage(res, `Failed to search character (${res.status})`));
   }
   const json = (await res.json()) as { characters: CharacterCandidate[] };
   return json.characters;
