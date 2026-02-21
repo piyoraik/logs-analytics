@@ -590,65 +590,71 @@ async function handleRankings(query) {
   });
   const client = makeClient('ja');
   const mapped = difficulty === 101 ? 5 : difficulty === 100 ? 4 : difficulty === 102 ? 6 : difficulty;
-  const candidates = [difficulty, mapped, 5, 4, 3, 6, 101, 100, 102, undefined].filter(
-    (v, i, arr) => (v === undefined || Number.isFinite(v)) && arr.indexOf(v) === i
-  );
   const partitionRaw = Number(query.partition);
-  const partitionCandidates = [partitionRaw, 1, 0, -1, undefined].filter(
-    (v, i, arr) => (v === undefined || Number.isFinite(v)) && arr.indexOf(v) === i
-  );
-  const sizeCandidates = [pageSize, 10, 5, 1].filter(
-    (v, i, arr) => Number.isFinite(v) && v > 0 && arr.indexOf(v) === i
+  const partition = Number.isFinite(partitionRaw) ? partitionRaw : undefined;
+  const tries = [
+    { difficulty, partition, pageSize },
+    { difficulty: mapped, partition, pageSize },
+    { difficulty: mapped, partition: undefined, pageSize },
+    { difficulty: undefined, partition: undefined, pageSize },
+    { difficulty: mapped, partition: 1, pageSize: Math.max(10, pageSize) },
+    { difficulty: undefined, partition: 1, pageSize: Math.max(10, pageSize) }
+  ].filter(
+    (v, i, arr) =>
+      (v.difficulty === undefined || Number.isFinite(v.difficulty)) &&
+      (v.partition === undefined || Number.isFinite(v.partition)) &&
+      arr.findIndex(
+        (x) => x.difficulty === v.difficulty && x.partition === v.partition && x.pageSize === v.pageSize
+      ) === i
   );
   const attempted = [];
   let last;
-  for (const d of candidates) {
-    for (const s of sizeCandidates) {
-      for (const p of partitionCandidates) {
-        if (Date.now() - startedAt > softLimitMs) {
-          const timeoutError = new Error(`rankings search exceeded soft limit ${softLimitMs}ms`);
-          logError(
-            'rankings.soft_timeout',
-            {
-              encounterId,
-              metric,
-              difficulty: difficulty ?? null,
-              pageSize,
-              rankIndex,
-              attemptedCount: attempted.length
-            },
-            timeoutError
-          );
-          throw new Error(`Rankings fetch timed out. attempted=[${attempted.join(' | ')}]`);
-        }
-        try {
-          attempted.push(
-            `difficulty=${d == null ? 'undefined' : d},size=${s},partition=${p == null ? 'undefined' : p}`
-          );
-          const r = await getRankings(client, {
-            encounterID: encounterId,
-            metric,
-            difficulty: d,
-            pageSize: s,
-            rankIndex,
-            className: job || undefined,
-            partition: p
-          });
-          return ok({
-            rankings: r.rankings,
-            resolvedEncounterId: encounterId,
-            resolvedMetric: metric,
-            resolvedDifficulty: d ?? null,
-            resolvedPartition: p ?? null,
-            resolvedPageSize: s,
-            resolvedJob: job || undefined,
-            fallbackApplied: d !== difficulty || s !== pageSize || p !== partitionRaw,
-            attempted
-          });
-        } catch (e) {
-          last = e;
-        }
-      }
+  for (const t of tries) {
+    if (Date.now() - startedAt > softLimitMs) {
+      const timeoutError = new Error(`rankings search exceeded soft limit ${softLimitMs}ms`);
+      logError(
+        'rankings.soft_timeout',
+        {
+          encounterId,
+          metric,
+          difficulty: difficulty ?? null,
+          pageSize,
+          rankIndex,
+          attemptedCount: attempted.length
+        },
+        timeoutError
+      );
+      throw new Error(`Rankings fetch timed out. attempted=[${attempted.join(' | ')}]`);
+    }
+    try {
+      attempted.push(
+        `difficulty=${t.difficulty == null ? 'undefined' : t.difficulty},size=${t.pageSize},partition=${
+          t.partition == null ? 'undefined' : t.partition
+        }`
+      );
+      const r = await getRankings(client, {
+        encounterID: encounterId,
+        metric,
+        difficulty: t.difficulty,
+        pageSize: t.pageSize,
+        rankIndex,
+        className: job || undefined,
+        partition: t.partition
+      });
+      return ok({
+        rankings: r.rankings,
+        resolvedEncounterId: encounterId,
+        resolvedMetric: metric,
+        resolvedDifficulty: t.difficulty ?? null,
+        resolvedPartition: t.partition ?? null,
+        resolvedPageSize: t.pageSize,
+        resolvedJob: job || undefined,
+        fallbackApplied:
+          t.difficulty !== difficulty || t.pageSize !== pageSize || t.partition !== partition,
+        attempted
+      });
+    } catch (e) {
+      last = e;
     }
   }
   logError(
