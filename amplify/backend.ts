@@ -1,5 +1,4 @@
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { defineBackend } from '@aws-amplify/backend';
 import * as cdk from 'aws-cdk-lib';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
@@ -15,18 +14,25 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 const backend = defineBackend({});
 const stack = backend.createStack('logsAnalytics');
 
-const stageName = process.env.STAGE_NAME ?? process.env.AMPLIFY_ENV ?? 'dev';
-const fflogsTokenUrl = process.env.FFLOGS_TOKEN_URL ?? 'https://www.fflogs.com/oauth/token';
-const fflogsGraphqlUrl = process.env.FFLOGS_GRAPHQL_URL ?? 'https://www.fflogs.com/api/v2/client';
-const xivApiBaseUrl = process.env.XIVAPI_BASE_URL ?? 'https://xivapi.com';
-const xivApiLang = process.env.XIVAPI_LANG ?? 'ja';
-const abilitySeedIds = process.env.ABILITY_SEED_IDS ?? '';
-const abilitySyncSchedule = process.env.ABILITY_SYNC_SCHEDULE ?? 'rate(1 day)';
-const abilitySyncPageLimit = process.env.ABILITY_SYNC_PAGE_LIMIT ?? '500';
-const abilitySyncMaxPages = process.env.ABILITY_SYNC_MAX_PAGES ?? '200';
+function envOrDefault(name: string, fallback: string): string {
+  const value = process.env[name];
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
 
-const fflogsClientId = process.env.FFLOGS_CLIENT_ID ?? '';
-const fflogsClientSecret = process.env.FFLOGS_CLIENT_SECRET ?? '';
+const stageName = envOrDefault('STAGE_NAME', envOrDefault('AMPLIFY_ENV', 'dev'));
+const fflogsTokenUrl = envOrDefault('FFLOGS_TOKEN_URL', 'https://www.fflogs.com/oauth/token');
+const fflogsGraphqlUrl = envOrDefault('FFLOGS_GRAPHQL_URL', 'https://www.fflogs.com/api/v2/client');
+const xivApiBaseUrl = envOrDefault('XIVAPI_BASE_URL', 'https://xivapi.com');
+const xivApiLang = envOrDefault('XIVAPI_LANG', 'ja');
+const abilitySeedIds = envOrDefault('ABILITY_SEED_IDS', '');
+const abilitySyncSchedule = envOrDefault('ABILITY_SYNC_SCHEDULE', 'rate(1 day)');
+const abilitySyncPageLimit = envOrDefault('ABILITY_SYNC_PAGE_LIMIT', '500');
+const abilitySyncMaxPages = envOrDefault('ABILITY_SYNC_MAX_PAGES', '200');
+
+const fflogsClientId = envOrDefault('FFLOGS_CLIENT_ID', '');
+const fflogsClientSecret = envOrDefault('FFLOGS_CLIENT_SECRET', '');
 
 if (!fflogsClientId || !fflogsClientSecret) {
   // eslint-disable-next-line no-console
@@ -36,13 +42,11 @@ if (!fflogsClientId || !fflogsClientSecret) {
 }
 
 const abilityMasterTable = new dynamodb.Table(stack, 'AbilityMasterTable', {
-  tableName: `fflogs-ability-master-${stageName}`,
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   partitionKey: { name: 'abilityId', type: dynamodb.AttributeType.NUMBER }
 });
 
 const analysisCacheTable = new dynamodb.Table(stack, 'AnalysisCacheTable', {
-  tableName: `fflogs-analysis-cache-${stageName}`,
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   partitionKey: { name: 'cacheKey', type: dynamodb.AttributeType.STRING },
   timeToLiveAttribute: 'ttl'
@@ -63,8 +67,7 @@ const commonEnv = {
   STAGE_NAME: stageName
 };
 
-const thisDir = path.dirname(fileURLToPath(import.meta.url));
-const infraRoot = path.join(thisDir, '..', 'infra');
+const infraRoot = path.resolve(process.cwd(), 'infra');
 
 const apiFunction = new lambda.Function(stack, 'ApiFunction', {
   runtime: lambda.Runtime.NODEJS_20_X,
@@ -77,7 +80,6 @@ const apiFunction = new lambda.Function(stack, 'ApiFunction', {
 });
 
 const abilitySyncDlq = new sqs.Queue(stack, 'AbilitySyncDlq', {
-  queueName: `fflogs-ability-sync-dlq-${stageName}`,
   retentionPeriod: cdk.Duration.days(14)
 });
 
@@ -145,7 +147,6 @@ httpApi.addRoutes({
 });
 
 new cloudwatch.Alarm(stack, 'ApiFunctionErrorsAlarm', {
-  alarmName: `fflogs-api-errors-${stageName}`,
   metric: apiFunction.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
   threshold: 1,
   evaluationPeriods: 1,
@@ -154,7 +155,6 @@ new cloudwatch.Alarm(stack, 'ApiFunctionErrorsAlarm', {
 });
 
 new cloudwatch.Alarm(stack, 'AbilitySyncErrorsAlarm', {
-  alarmName: `fflogs-ability-sync-errors-${stageName}`,
   metric: abilitySyncFunction.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' }),
   threshold: 1,
   evaluationPeriods: 1,
@@ -163,7 +163,6 @@ new cloudwatch.Alarm(stack, 'AbilitySyncErrorsAlarm', {
 });
 
 new cloudwatch.Alarm(stack, 'AbilitySyncDurationAlarm', {
-  alarmName: `fflogs-ability-sync-duration-${stageName}`,
   metric: abilitySyncFunction.metricDuration({ period: cdk.Duration.minutes(5), statistic: 'Maximum' }),
   threshold: 840000,
   evaluationPeriods: 1,
@@ -172,7 +171,6 @@ new cloudwatch.Alarm(stack, 'AbilitySyncDurationAlarm', {
 });
 
 new cloudwatch.Alarm(stack, 'AbilitySyncDlqVisibleMessagesAlarm', {
-  alarmName: `fflogs-ability-sync-dlq-visible-${stageName}`,
   metric: abilitySyncDlq.metricApproximateNumberOfMessagesVisible({
     period: cdk.Duration.minutes(5),
     statistic: 'Maximum'
