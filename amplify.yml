@@ -11,21 +11,21 @@ applications:
             - npm --prefix ../infra run prepare:lambda
         build:
           commands:
-            - cd .. && npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
+            - cd .. && npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID --debug
     frontend:
       phases:
         preBuild:
           commands:
-            - npm ci
+            - npm --prefix web ci
         build:
           commands:
-            - npm run build
+            - npm --prefix web run build
       artifacts:
-        baseDirectory: .next
+        baseDirectory: web/.next
         files:
           - '**/*'
       cache:
         paths:
+          - web/node_modules/**/*
           - node_modules/**/*
-          - ../node_modules/**/*
-          - ../infra/node_modules/**/*
+          - infra/node_modules/**/*
