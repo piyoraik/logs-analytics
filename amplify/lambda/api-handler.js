@@ -544,20 +544,25 @@ async function handleReportFights(query) {
 async function handleRankings(query) {
   const encounterId = Number(query.encounterId);
   const metric = (query.metric ?? 'dps').trim();
-  const difficulty = Number(query.difficulty);
-  const pageSize = Number(query.pageSize ?? '10');
+  const difficultyRaw = Number(query.difficulty);
+  const difficulty = Number.isFinite(difficultyRaw) ? difficultyRaw : undefined;
+  const pageSizeRaw = Number(query.pageSize ?? '10');
+  const pageSize = Number.isFinite(pageSizeRaw) ? Math.max(1, Math.min(100, pageSizeRaw)) : 10;
   const rankIndex = Number(query.rankIndex ?? '0');
   const job = String(query.job ?? '').trim();
-  if (!Number.isFinite(encounterId) || !metric || !Number.isFinite(difficulty)) {
-    return err(400, 'encounterId, metric, difficulty are required');
+  if (!Number.isFinite(encounterId) || !metric) {
+    return err(400, 'encounterId and metric are required');
   }
   const client = makeClient('ja');
-  const candidates = [difficulty, difficulty === 101 ? 5 : difficulty].filter(
-    (v, i, arr) => Number.isFinite(v) && arr.indexOf(v) === i
+  const mapped = difficulty === 101 ? 5 : difficulty === 100 ? 4 : difficulty === 102 ? 6 : difficulty;
+  const candidates = [difficulty, mapped, 5, 4, 3, 6, 101, 100, 102, undefined].filter(
+    (v, i, arr) => (v === undefined || Number.isFinite(v)) && arr.indexOf(v) === i
   );
+  const attempted = [];
   let last;
   for (const d of candidates) {
     try {
+      attempted.push(`difficulty=${d == null ? 'undefined' : d},size=${pageSize}`);
       const r = await getRankings(client, {
         encounterID: encounterId,
         metric,
@@ -570,15 +575,17 @@ async function handleRankings(query) {
         rankings: r.rankings,
         resolvedEncounterId: encounterId,
         resolvedMetric: metric,
-        resolvedDifficulty: d,
+        resolvedDifficulty: d ?? null,
         resolvedJob: job || undefined,
-        fallbackApplied: d !== difficulty
+        fallbackApplied: d !== difficulty,
+        attempted
       });
     } catch (e) {
       last = e;
     }
   }
-  throw last ?? new Error('Rankings not found');
+  const detail = last instanceof Error ? last.message : String(last ?? 'Rankings not found');
+  throw new Error(`${detail} attempted=[${attempted.join(' | ')}]`);
 }
 
 async function handleEncounterSearch(query) {
