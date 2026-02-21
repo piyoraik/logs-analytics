@@ -37,7 +37,7 @@ ABILITY_OVERRIDES_PATH=./out/ability_overrides.json
 ### report モード（推奨）
 
 ```bash
-npm run dev -- --report <reportCode>
+npm run backend:dev -- --report <reportCode>
 ```
 
 主要オプション:
@@ -63,7 +63,7 @@ npm run dev -- --report abcDEF12 --pick byBoss:123 --difficulty 101
 ### rankings モード
 
 ```bash
-npm run dev -- --rankings true --encounter-id <id> --metric <metric> --difficulty <difficulty>
+npm run backend:dev -- --rankings true --encounter-id <id> --metric <metric> --difficulty <difficulty>
 ```
 
 主要オプション:
@@ -81,8 +81,8 @@ npm run dev -- --rankings true --encounter-id 123 --metric dps --difficulty 101 
 ## 3. ビルド / 実行
 
 ```bash
-npm run build
-npm run start -- --report <reportCode>
+npm run backend:build
+node amplify/dist/index.js --report <reportCode>
 ```
 
 ## 3.1 Next.js 可視化
@@ -90,8 +90,8 @@ npm run start -- --report <reportCode>
 1. Next.jsビューアを起動
 
 ```bash
-npm --prefix web install
-npm run web:dev
+npm install
+npm run dev
 ```
 
 ブラウザで `http://localhost:3000` を開くと、Webから直接FFLogsへ問い合わせて以下を表示します。
@@ -110,7 +110,6 @@ npm run web:dev
 `rankings` モードを使う場合、`reportCode` の手入力は不要です。
 ボス名検索→候補選択→`Encounter ID` セット→ランキング取得→解析、の順で進められます。
 
-環境変数 `FFLOGS_OUT_DIR` を指定すると、`out` の参照先を変更できます。
 アイコンはWeb側でXIVAPIを参照して取得します。未解決IDはテキスト表示にフォールバックします。
 
 `NEXT_PUBLIC_API_BASE_URL` は必須です。

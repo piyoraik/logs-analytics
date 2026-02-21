@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pickFight } from '../src/select/pickFight';
-import { Fight } from '../src/fflogs/types';
+import { pickFight } from '../amplify/src/select/pickFight';
+import { Fight } from '../amplify/src/fflogs/types';
 
 const fights: Fight[] = [
   {

@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  distDir: '.next-web'
+  reactStrictMode: true
 };
 
 export default nextConfig;

@@ -1,28 +1,25 @@
 version: 1
-applications:
-  - appRoot: web
-    backend:
-      phases:
-        preBuild:
-          commands:
-            - npm --prefix .. install
-            - npm --prefix .. run amplify:prepare
-        build:
-          commands:
-            - cd .. && npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID --debug
-    frontend:
-      phases:
-        preBuild:
-          commands:
-            - npm ci
-        build:
-          commands:
-            - npm run build
-      artifacts:
-        baseDirectory: .next
-        files:
-          - '**/*'
-      cache:
-        paths:
-          - node_modules/**/*
-          - ../node_modules/**/*
+backend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+        - npm run amplify:prepare
+    build:
+      commands:
+        - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID --debug
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - echo "frontend deps already installed in backend preBuild"
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*

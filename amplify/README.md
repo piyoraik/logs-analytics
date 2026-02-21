@@ -36,3 +36,5 @@ Amplify HostingのCIで `amplify.yml` を使用し、以下を実行します。
 2. `amplify/dist` の生成 (`npm run amplify:prepare`)
 3. `npx ampx pipeline-deploy ...`
 4. Next.js build
+
+`amplify.yml` は single-app 形式（`applications` なし）の repo root 前提です。

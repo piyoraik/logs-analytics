@@ -1,20 +1,17 @@
 {
-  "name": "fflogs-poc",
+  "name": "logs-analytics",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint \"amplify/src/**/*.ts\" \"test/**/*.ts\" \"app/**/*.ts\" \"app/**/*.tsx\" \"lib/**/*.ts\"",
+    "backend:build": "tsc -p amplify/tsconfig.build.json",
+    "backend:dev": "tsx amplify/src/index.ts",
     "test": "vitest run",
-    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
-    "web:clean": "rm -rf web/.next web/.next-web",
-    "web:dev": "npm --prefix web run dev",
-    "web:build": "npm --prefix web run build",
-    "web:start": "npm --prefix web run start",
-    "infra:prepare": "npm run build && npm --prefix infra run prepare:lambda",
-    "amplify:prepare": "npm run build && rm -rf amplify/dist && mkdir -p amplify/dist && cp -R dist/* amplify/dist/",
+    "amplify:prepare": "npm run backend:build",
     "infra:build": "npm --prefix infra run sam:build",
     "infra:deploy:guided": "npm --prefix infra run sam:deploy:guided",
     "infra:deploy": "npm --prefix infra run sam:deploy",
@@ -22,12 +19,17 @@
     "amplify:sandbox": "npx ampx sandbox"
   },
   "dependencies": {
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "next": "^15.5.12",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.21.0",
     "@aws-amplify/backend-cli": "^1.8.2",
     "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
     "@typescript-eslint/eslint-plugin": "^8.24.1",
     "@typescript-eslint/parser": "^8.24.1",
     "aws-cdk-lib": "^2.239.0",

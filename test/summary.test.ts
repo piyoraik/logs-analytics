@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlayerSummary } from '../src/players/summary';
+import { buildPlayerSummary } from '../amplify/src/players/summary';
 
 describe('buildPlayerSummary', () => {
   it('aggregates count, avg interval, and cpm', () => {
