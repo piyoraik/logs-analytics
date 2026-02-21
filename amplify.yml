@@ -1,14 +1,14 @@
 version: 1
 applications:
-  - appRoot: .
+  - appRoot: web
     backend:
       phases:
         preBuild:
           commands:
-            - npm ci
-            - npm --prefix infra ci
-            - npm run build
-            - npm --prefix infra run prepare:lambda
+            - npm --prefix .. ci
+            - npm --prefix ../infra ci
+            - npm --prefix .. run build
+            - npm --prefix ../infra run prepare:lambda
         build:
           commands:
             - npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID
@@ -16,15 +16,16 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm --prefix web ci
+            - npm ci
         build:
           commands:
-            - npm --prefix web run build
+            - npm run build
       artifacts:
-        baseDirectory: web/.next
+        baseDirectory: .next
         files:
           - '**/*'
       cache:
         paths:
           - node_modules/**/*
-          - infra/node_modules/**/*
+          - ../node_modules/**/*
+          - ../infra/node_modules/**/*
