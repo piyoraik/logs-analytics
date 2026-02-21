@@ -37,3 +37,7 @@ infra/node_modules/
 infra/.aws-sam/
 infra/dist/
 infra/samconfig.toml
+
+# Amplify Gen2
+.amplify/
+amplify/.temp/

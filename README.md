@@ -113,8 +113,11 @@ npm run web:dev
 環境変数 `FFLOGS_OUT_DIR` を指定すると、`out` の参照先を変更できます。
 アイコンはWeb側でXIVAPIを参照して取得します。未解決IDはテキスト表示にフォールバックします。
 
-`NEXT_PUBLIC_API_BASE_URL` は必須です（`web/app/api/*` は削除済み）。
-以下をLambda APIへ直接呼びます。
+`NEXT_PUBLIC_API_BASE_URL` は必須です。
+`NEXT_PUBLIC_USE_NEXT_API=true` の場合は Next.js の API Route (`/api/*`) を経由し、
+`false` の場合は Lambda API を直接呼びます。
+
+以下エンドポイントを使用します。
 
 - `/report/fights`
 - `/rankings/search`
@@ -152,6 +155,24 @@ sam deploy --guided -t template.yaml
 ```
 
 詳細は `infra/README.md` を参照してください。
+
+## 3.3 AWS IaC (Amplify Gen2) へ移行
+
+`amplify/backend.ts` に、SAM相当のリソースをCDKで定義しています。
+
+- Lambda (`api-handler`, `ability-sync-handler`)
+- DynamoDB (`AbilityMaster`, `AnalysisCache`)
+- EventBridge schedule + DLQ
+- API Gateway HTTP API
+- CloudWatch alarms
+
+Amplify Console で必要な環境変数を設定後、`amplify.yml` 経由でデプロイできます。
+必須値は `amplify/README.md` を参照してください。
+
+補足:
+
+- 検証段階では SAM と Gen2 の共存は可能
+- 運用時は二重管理を避けるためどちらかに統一推奨
 
 ## 4. 出力ファイル (`./out`)
 

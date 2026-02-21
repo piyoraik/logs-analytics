@@ -16,15 +16,20 @@
     "infra:prepare": "npm run build && npm --prefix infra run prepare:lambda",
     "infra:build": "npm --prefix infra run sam:build",
     "infra:deploy:guided": "npm --prefix infra run sam:deploy:guided",
-    "infra:deploy": "npm --prefix infra run sam:deploy"
+    "infra:deploy": "npm --prefix infra run sam:deploy",
+    "amplify:deploy": "npx ampx pipeline-deploy --branch ${AWS_BRANCH:-main} --app-id ${AWS_APP_ID}",
+    "amplify:sandbox": "npx ampx sandbox"
   },
   "dependencies": {
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
+    "@aws-amplify/backend": "^1.21.0",
     "@types/node": "^22.13.10",
     "@typescript-eslint/eslint-plugin": "^8.24.1",
     "@typescript-eslint/parser": "^8.24.1",
+    "aws-cdk-lib": "^2.239.0",
+    "constructs": "^10.5.1",
     "eslint": "^8.57.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
