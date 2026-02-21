@@ -95,6 +95,7 @@ export default function TimelineGrid({ model }: Props) {
   const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [iconLoading, setIconLoading] = useState(false);
   const requestedIconIdsRef = useRef<Set<number>>(new Set());
+  const retryCountRef = useRef<Map<number, number>>(new Map());
   const [colWidths, setColWidths] = useState<Record<string, number>>({
     time: 96,
     boss: 360
@@ -176,7 +177,11 @@ export default function TimelineGrid({ model }: Props) {
   }, [displayedRows, visiblePlayers, iconMap]);
 
   useEffect(() => {
-    const targets = missingIconIds.filter((id) => !requestedIconIdsRef.current.has(id));
+    const targets = missingIconIds.filter((id) => {
+      if (requestedIconIdsRef.current.has(id)) return false;
+      const retried = retryCountRef.current.get(id) ?? 0;
+      return retried < 3;
+    });
     if (targets.length === 0) {
       return;
     }
@@ -194,10 +199,20 @@ export default function TimelineGrid({ model }: Props) {
     Promise.allSettled(
       chunks.map(async (chunk) => {
         const icons = await fetchIconChunk(chunk, 'ja');
-        if (!mounted || Object.keys(icons).length === 0) {
+        if (!mounted) {
           return;
         }
-        setIconMap((prev) => ({ ...prev, ...icons }));
+        if (Object.keys(icons).length > 0) {
+          setIconMap((prev) => ({ ...prev, ...icons }));
+        }
+        for (const id of chunk) {
+          if (icons[String(id)]) {
+            continue;
+          }
+          requestedIconIdsRef.current.delete(id);
+          const prev = retryCountRef.current.get(id) ?? 0;
+          retryCountRef.current.set(id, prev + 1);
+        }
       })
     )
       .finally(() => {
