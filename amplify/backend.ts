@@ -201,3 +201,9 @@ new cdk.CfnOutput(stack, 'AbilitySyncFunctionName', {
 new cdk.CfnOutput(stack, 'AbilitySyncDlqUrl', {
   value: abilitySyncDlq.queueUrl
 });
+
+backend.addOutput({
+  custom: {
+    apiBaseUrl: httpApi.apiEndpoint
+  }
+});
