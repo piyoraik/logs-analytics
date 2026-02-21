@@ -567,6 +567,8 @@ async function handleReportFights(query) {
 }
 
 async function handleRankings(query) {
+  const startedAt = Date.now();
+  const softLimitMs = 22000;
   const encounterId = Number(query.encounterId);
   const metric = (query.metric ?? 'dps').trim();
   const difficultyRaw = Number(query.difficulty);
@@ -603,6 +605,22 @@ async function handleRankings(query) {
   for (const d of candidates) {
     for (const s of sizeCandidates) {
       for (const p of partitionCandidates) {
+        if (Date.now() - startedAt > softLimitMs) {
+          const timeoutError = new Error(`rankings search exceeded soft limit ${softLimitMs}ms`);
+          logError(
+            'rankings.soft_timeout',
+            {
+              encounterId,
+              metric,
+              difficulty: difficulty ?? null,
+              pageSize,
+              rankIndex,
+              attemptedCount: attempted.length
+            },
+            timeoutError
+          );
+          throw new Error(`Rankings fetch timed out. attempted=[${attempted.join(' | ')}]`);
+        }
         try {
           attempted.push(
             `difficulty=${d == null ? 'undefined' : d},size=${s},partition=${p == null ? 'undefined' : p}`

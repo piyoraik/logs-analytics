@@ -550,8 +550,10 @@ export async function getRankings(
     : 10;
   const targetCount = Math.max(params.rankIndex + 1, safePageSize);
   const shouldScanWide = Boolean(params.className || params.specName);
-  const apiPageSize = Math.max(10, safePageSize);
-  const maxPages = shouldScanWide ? 20 : Math.max(2, Math.ceil(targetCount / apiPageSize) + 1);
+  // Job filtering previously scanned too many pages and caused Lambda timeouts.
+  // Use larger pages with fewer requests to keep execution under API/Lambda limits.
+  const apiPageSize = shouldScanWide ? Math.max(50, safePageSize) : Math.max(10, safePageSize);
+  const maxPages = shouldScanWide ? 4 : Math.max(2, Math.ceil(targetCount / apiPageSize) + 1);
 
   const collectPagedRows = async (
     seed: any[],
