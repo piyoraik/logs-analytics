@@ -558,30 +558,46 @@ async function handleRankings(query) {
   const candidates = [difficulty, mapped, 5, 4, 3, 6, 101, 100, 102, undefined].filter(
     (v, i, arr) => (v === undefined || Number.isFinite(v)) && arr.indexOf(v) === i
   );
+  const partitionRaw = Number(query.partition);
+  const partitionCandidates = [partitionRaw, 1, 0, -1, undefined].filter(
+    (v, i, arr) => (v === undefined || Number.isFinite(v)) && arr.indexOf(v) === i
+  );
+  const sizeCandidates = [pageSize, 10, 5, 1].filter(
+    (v, i, arr) => Number.isFinite(v) && v > 0 && arr.indexOf(v) === i
+  );
   const attempted = [];
   let last;
   for (const d of candidates) {
-    try {
-      attempted.push(`difficulty=${d == null ? 'undefined' : d},size=${pageSize}`);
-      const r = await getRankings(client, {
-        encounterID: encounterId,
-        metric,
-        difficulty: d,
-        pageSize,
-        rankIndex,
-        className: job || undefined
-      });
-      return ok({
-        rankings: r.rankings,
-        resolvedEncounterId: encounterId,
-        resolvedMetric: metric,
-        resolvedDifficulty: d ?? null,
-        resolvedJob: job || undefined,
-        fallbackApplied: d !== difficulty,
-        attempted
-      });
-    } catch (e) {
-      last = e;
+    for (const s of sizeCandidates) {
+      for (const p of partitionCandidates) {
+        try {
+          attempted.push(
+            `difficulty=${d == null ? 'undefined' : d},size=${s},partition=${p == null ? 'undefined' : p}`
+          );
+          const r = await getRankings(client, {
+            encounterID: encounterId,
+            metric,
+            difficulty: d,
+            pageSize: s,
+            rankIndex,
+            className: job || undefined,
+            partition: p
+          });
+          return ok({
+            rankings: r.rankings,
+            resolvedEncounterId: encounterId,
+            resolvedMetric: metric,
+            resolvedDifficulty: d ?? null,
+            resolvedPartition: p ?? null,
+            resolvedPageSize: s,
+            resolvedJob: job || undefined,
+            fallbackApplied: d !== difficulty || s !== pageSize || p !== partitionRaw,
+            attempted
+          });
+        } catch (e) {
+          last = e;
+        }
+      }
     }
   }
   const detail = last instanceof Error ? last.message : String(last ?? 'Rankings not found');
