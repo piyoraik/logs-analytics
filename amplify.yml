@@ -5,7 +5,7 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm --prefix .. ci
+            - npm --prefix .. install
             - npm --prefix ../infra ci
             - npm --prefix .. run build
             - npm --prefix ../infra run prepare:lambda
