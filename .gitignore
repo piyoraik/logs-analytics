@@ -41,3 +41,4 @@ infra/samconfig.toml
 # Amplify Gen2
 .amplify/
 amplify/.temp/
+amplify/dist/

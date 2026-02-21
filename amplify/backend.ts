@@ -67,12 +67,12 @@ const commonEnv = {
   STAGE_NAME: stageName
 };
 
-const infraRoot = path.resolve(process.cwd(), 'infra');
+const amplifyAssetRoot = path.resolve(process.cwd(), 'amplify');
 
 const apiFunction = new lambda.Function(stack, 'ApiFunction', {
   runtime: lambda.Runtime.NODEJS_20_X,
   architecture: lambda.Architecture.ARM_64,
-  code: lambda.Code.fromAsset(infraRoot),
+  code: lambda.Code.fromAsset(amplifyAssetRoot),
   handler: 'lambda/api-handler.handler',
   timeout: cdk.Duration.seconds(30),
   memorySize: 1024,
@@ -86,7 +86,7 @@ const abilitySyncDlq = new sqs.Queue(stack, 'AbilitySyncDlq', {
 const abilitySyncFunction = new lambda.Function(stack, 'AbilitySyncFunction', {
   runtime: lambda.Runtime.NODEJS_20_X,
   architecture: lambda.Architecture.ARM_64,
-  code: lambda.Code.fromAsset(infraRoot),
+  code: lambda.Code.fromAsset(amplifyAssetRoot),
   handler: 'lambda/ability-sync-handler.handler',
   timeout: cdk.Duration.minutes(15),
   memorySize: 1024,

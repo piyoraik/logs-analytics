@@ -33,9 +33,6 @@
 Amplify HostingのCIで `amplify.yml` を使用し、以下を実行します。
 
 1. root install + TypeScript build
-2. `infra/dist` の生成 (`npm --prefix infra run prepare:lambda`)
+2. `amplify/dist` の生成 (`npm run amplify:prepare`)
 3. `npx ampx pipeline-deploy ...`
 4. Next.js build
-
-検証用途でSAMと共存可能ですが、本番系はどちらか一方に統一してください。
-

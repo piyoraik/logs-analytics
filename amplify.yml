@@ -6,9 +6,7 @@ applications:
         preBuild:
           commands:
             - npm --prefix .. install
-            - npm --prefix ../infra ci
-            - npm --prefix .. run build
-            - npm --prefix ../infra run prepare:lambda
+            - npm --prefix .. run amplify:prepare
         build:
           commands:
             - cd .. && npx ampx pipeline-deploy --branch $AWS_BRANCH --app-id $AWS_APP_ID --debug
@@ -16,16 +14,15 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm --prefix web ci
+            - npm ci
         build:
           commands:
-            - npm --prefix web run build
+            - npm run build
       artifacts:
-        baseDirectory: web/.next
+        baseDirectory: .next
         files:
           - '**/*'
       cache:
         paths:
-          - web/node_modules/**/*
           - node_modules/**/*
-          - infra/node_modules/**/*
+          - ../node_modules/**/*

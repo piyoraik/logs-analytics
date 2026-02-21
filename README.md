@@ -132,7 +132,7 @@ npm run web:dev
 NEXT_PUBLIC_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/dev
 ```
 
-## 3.2 AWS IaC (SAM) でバックエンド作成
+## 3.2 AWS IaC (SAM) でバックエンド作成（任意）
 
 `infra/template.yaml` に以下を定義しています。
 
@@ -156,9 +156,9 @@ sam deploy --guided -t template.yaml
 
 詳細は `infra/README.md` を参照してください。
 
-## 3.3 AWS IaC (Amplify Gen2) へ移行
+## 3.3 AWS IaC (Amplify Gen2)
 
-`amplify/backend.ts` に、SAM相当のリソースをCDKで定義しています。
+`amplify/backend.ts` に、バックエンドリソースをCDKで定義しています。
 
 - Lambda (`api-handler`, `ability-sync-handler`)
 - DynamoDB (`AbilityMaster`, `AnalysisCache`)
@@ -169,10 +169,7 @@ sam deploy --guided -t template.yaml
 Amplify Console で必要な環境変数を設定後、`amplify.yml` 経由でデプロイできます。
 必須値は `amplify/README.md` を参照してください。
 
-補足:
-
-- 検証段階では SAM と Gen2 の共存は可能
-- 運用時は二重管理を避けるためどちらかに統一推奨
+Lambdaコードは `amplify/lambda`、TypeScriptビルド成果物は `amplify/dist` を使用します。
 
 ## 4. 出力ファイル (`./out`)
 
