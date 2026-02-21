@@ -197,8 +197,23 @@ function serverSlugToName(slug) {
     .join(' ');
 }
 
+function sanitizeXivApiBaseUrl(value, fallback = 'https://v2.xivapi.com') {
+  const raw = String(value ?? fallback).trim();
+  try {
+    const u = new URL(raw);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    try {
+      const u = new URL(`https://${raw.replace(/^\/+/, '')}`);
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
 async function searchCharactersViaXivApi(name, serverSlug, limit) {
-  const base = (process.env.XIVAPI_BASE_URL ?? 'https://xivapi.com').replace(/\/+$/, '');
+  const base = sanitizeXivApiBaseUrl(process.env.XIVAPI_BASE_URL ?? 'https://xivapi.com').replace(/\/+$/, '');
   const baseCandidates = [...new Set([base, 'https://xivapi.com', 'https://v1.xivapi.com'])];
   const safeLimit = Math.max(1, Math.min(limit, 50));
   const serverName = serverSlugToName(serverSlug);
@@ -776,7 +791,7 @@ async function handleCharacterSearch(query) {
 }
 
 async function fetchXivApiAction(id, lang) {
-  const baseUrl = (process.env.XIVAPI_BASE_URL ?? 'https://v2.xivapi.com').replace(/\/+$/, '');
+  const baseUrl = sanitizeXivApiBaseUrl(process.env.XIVAPI_BASE_URL ?? 'https://v2.xivapi.com').replace(/\/+$/, '');
   const candidates = [baseUrl];
   if (baseUrl.includes('xivapi.com') && !baseUrl.includes('v2.xivapi.com')) {
     candidates.unshift('https://v2.xivapi.com');

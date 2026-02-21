@@ -17,6 +17,22 @@ function parseSeedIds(value) {
     .filter((v, i, arr) => Number.isFinite(v) && v > 0 && arr.indexOf(v) === i);
 }
 
+function sanitizeXivApiBaseUrl(value) {
+  const fallback = 'https://v2.xivapi.com';
+  const raw = String(value ?? fallback).trim();
+  try {
+    const u = new URL(raw);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    try {
+      const u = new URL(`https://${raw.replace(/^\/+/, '')}`);
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
 function extractIconPath(value) {
   if (!value) return undefined;
   if (typeof value === 'string' && value.trim()) return value.trim();
@@ -133,7 +149,7 @@ function isValidIconUrl(iconUrl) {
 }
 
 async function fetchActionById(id, baseUrl, lang) {
-  const base = baseUrl.replace(/\/+$/, '');
+  const base = sanitizeXivApiBaseUrl(baseUrl).replace(/\/+$/, '');
   const candidates = [base];
   if (base.includes('xivapi.com') && !base.includes('v2.xivapi.com')) {
     candidates.unshift('https://v2.xivapi.com');
@@ -166,7 +182,7 @@ async function fetchActionById(id, baseUrl, lang) {
 }
 
 async function fetchActionPage(baseUrl, lang, after, limit) {
-  const base = baseUrl.replace(/\/+$/, '');
+  const base = sanitizeXivApiBaseUrl(baseUrl).replace(/\/+$/, '');
   const candidates = [base];
   if (base.includes('xivapi.com') && !base.includes('v2.xivapi.com')) {
     candidates.unshift('https://v2.xivapi.com');
@@ -213,7 +229,7 @@ function toItem(id, action, lang, baseUrl, now) {
 
 exports.handler = async (event, context) => {
   const table = process.env.ABILITY_MASTER_TABLE;
-  const baseUrl = process.env.XIVAPI_BASE_URL ?? 'https://v2.xivapi.com';
+  const baseUrl = sanitizeXivApiBaseUrl(process.env.XIVAPI_BASE_URL ?? 'https://v2.xivapi.com');
   const lang = process.env.XIVAPI_LANG ?? 'ja';
   const seedIds = parseSeedIds(process.env.ABILITY_SEED_IDS ?? '');
   const pageLimitEnv = Number(process.env.ABILITY_SYNC_PAGE_LIMIT ?? '500');
